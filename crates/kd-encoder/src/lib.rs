@@ -6,6 +6,8 @@ use thiserror::Error;
 pub mod software;
 #[cfg(feature = "ffmpeg")]
 pub mod ffmpeg_encoder;
+#[cfg(feature = "openh264")]
+pub mod openh264_encoder;
 
 #[cfg(all(target_os = "windows", feature = "nvenc"))]
 pub mod nvenc;
@@ -158,8 +160,17 @@ impl EncoderFactory {
             tracing::warn!("Hardware encoder not available, falling back to software");
         }
 
-        // Fallback to software encoder
-        tracing::info!("Using software encoder");
+        // Try OpenH264 if available
+        #[cfg(feature = "openh264")]
+        if openh264_encoder::OpenH264Encoder::is_available() {
+            if let Ok(encoder) = openh264_encoder::OpenH264Encoder::new(config.clone()) {
+                tracing::info!("Using OpenH264 software encoder");
+                return Ok(Box::new(encoder));
+            }
+        }
+
+        // Final fallback to stub encoder
+        tracing::warn!("Using stub software encoder (visual output will be garbage)");
         Ok(Box::new(software::SoftwareEncoder::new(config)?))
     }
 

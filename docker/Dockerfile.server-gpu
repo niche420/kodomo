@@ -1,0 +1,49 @@
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libx11-dev \
+    libxrandr-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ ./crates/
+
+# Build with NVENC support
+RUN cargo build --release --bin streaming-server --features nvenc
+
+# Runtime image
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+
+RUN apt-get update && apt-get install -y \
+    libx11-6 \
+    libxrandr2 \
+    libavcodec59 \
+    libavformat59 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/target/release/streaming-server /usr/local/bin/
+COPY docker/config-gpu.toml /etc/streaming-server/config.toml
+
+RUN useradd -m -u 1000 streaming
+USER streaming
+
+EXPOSE 8080/udp
+EXPOSE 9090
+
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+
+CMD ["streaming-server", "--config", "/etc/streaming-server/config.toml"]

@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  streaming-server-gpu:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server-gpu
+    container_name: game-streaming-server-gpu
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+      - RUST_LOG=info
+    ports:
+      - "8080:8080/udp"
+      - "9090:9090"
+    volumes:
+      - ./config-gpu.toml:/etc/streaming-server/config.toml:ro
+    restart: unless-stopped
+    networks:
+      - streaming-net
+
+  ml-optimizer:
+    extends:
+      file: docker-compose.yml
+      service: ml-optimizer
+
+  prometheus:
+    extends:
+      file: docker-compose.yml
+      service: prometheus
+
+  grafana:
+    extends:
+      file: docker-compose.yml
+      service: grafana
+
+networks:
+  streaming-net:
+    driver: bridge

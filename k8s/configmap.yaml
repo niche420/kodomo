@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: streaming-server-config
+  namespace: game-streaming
+data:
+  config.toml: |
+    [server]
+    name = "Kubernetes Streaming Server"
+    max_clients = 10
+    metrics_port = 9090
+
+    [video]
+    width = 1920
+    height = 1080
+    fps = 60
+    bitrate_kbps = 12000
+    codec = "h264"
+    preset = "fast"
+    hw_accel = true
+    keyframe_interval = 60
+
+    [network]
+    transport = "udp"
+    port = 8080
+    bind_address = "0.0.0.0"
+    max_packet_size = 1400
+
+    [capture]
+    monitor_index = 0
+
+    [input]
+    keyboard_enabled = true
+    mouse_enabled = true
+    gamepad_enabled = true
+
+---

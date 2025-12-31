@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-optimizer
+  namespace: game-streaming
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ml-optimizer
+  template:
+    metadata:
+      labels:
+        app: ml-optimizer
+    spec:
+      containers:
+        - name: ml-optimizer
+          image: ml-optimizer:latest
+          ports:
+            - containerPort: 8081
+              name: metrics
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          env:
+            - name: SERVER_URL
+              value: "ws://streaming-server:8080/metrics"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          volumeMounts:
+            - name: models
+              mountPath: /app/models
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ml-models-pvc
+        - name: data
+          persistentVolumeClaim:
+            claimName: ml-data-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-optimizer
+  namespace: game-streaming
+spec:
+  selector:
+    app: ml-optimizer
+  ports:
+    - port: 8081
+      targetPort: 8081
+      name: metrics
+
+---

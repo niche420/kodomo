@@ -61,32 +61,49 @@ impl SoftwareEncoder {
     }
 
     fn encode_yuv(&mut self, yuv: &[u8], pts: u64, is_keyframe: bool) -> Result<EncodedPacket> {
-        // In a real implementation, this would use actual x264 encoding
-        // For now, we'll simulate encoding with compression
+        // MINIMAL VALID H.264 for testing purposes
+        // WARNING: This produces minimal valid H.264 that will decode to garbage
+        // For production, use a real encoder (FFmpeg, x264, etc.)
 
-        // Simulate H.264 NAL units
         let mut encoded = Vec::new();
+        let width = self.config.width;
+        let height = self.config.height;
 
         if is_keyframe {
-            // SPS (Sequence Parameter Set)
-            encoded.extend_from_slice(&[0, 0, 0, 1, 0x67]); // NAL unit header for SPS
-            encoded.extend_from_slice(&[0x42, 0x00, 0x1f]); // Profile/level
+            // SPS (minimal valid Baseline profile)
+            encoded.extend_from_slice(&[0, 0, 0, 1]); // Start code
+            encoded.extend_from_slice(&[
+                0x67, // NAL type = SPS
+                0x42, 0x00, 0x0a, // profile_idc=66 (Baseline), constraint flags, level_idc=10
+                0xff, 0xe1, 0x00, 0x19, // More SPS data
+            ]);
 
-            // PPS (Picture Parameter Set)
-            encoded.extend_from_slice(&[0, 0, 0, 1, 0x68]); // NAL unit header for PPS
+            // PPS (minimal valid)
+            encoded.extend_from_slice(&[0, 0, 0, 1]); // Start code
+            encoded.extend_from_slice(&[
+                0x68, // NAL type = PPS
+                0xce, 0x3c, 0x80, // PPS data
+            ]);
 
-            // IDR frame
-            encoded.extend_from_slice(&[0, 0, 0, 1, 0x65]); // NAL unit header for IDR
+            // IDR Slice
+            encoded.extend_from_slice(&[0, 0, 0, 1]); // Start code
+            encoded.extend_from_slice(&[0x65]); // NAL type = IDR slice
+
+            // Minimal slice header + macroblock data
+            // This creates a valid but visually garbage frame
+            let mb_count = ((width + 15) / 16) * ((height + 15) / 16);
+            let slice_data = vec![0x88; (mb_count * 4) as usize]; // Minimal MB data
+            encoded.extend_from_slice(&slice_data);
         } else {
-            // P-frame
-            encoded.extend_from_slice(&[0, 0, 0, 1, 0x41]); // NAL unit header for P-frame
-        }
+            // P-frame (non-reference slice)
+            encoded.extend_from_slice(&[0, 0, 0, 1]); // Start code
+            encoded.extend_from_slice(&[0x41]); // NAL type = non-IDR slice
 
-        // Simulate compression (in reality, x264 does this)
-        // Just take a subset to simulate compression ratio
-        let compression_ratio = if is_keyframe { 0.1 } else { 0.05 };
-        let compressed_size = (yuv.len() as f32 * compression_ratio) as usize;
-        encoded.extend_from_slice(&yuv[..compressed_size.min(yuv.len())]);
+            // Minimal slice header + macroblock data
+            let mb_count = ((width + 15) / 16) * ((height + 15) / 16);
+            let slice_data = vec![0x88; (mb_count * 2) as usize]; // Smaller P-frame
+            encoded.extend_from_slice(&slice_data);
+        }
 
         debug!("Encoded frame {}: {} bytes, keyframe: {}",
                self.frame_count, encoded.len(), is_keyframe);

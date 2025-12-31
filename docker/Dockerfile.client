@@ -1,0 +1,45 @@
+FROM debian:bookworm-slim AS builder
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    pkg-config \
+    libsdl2-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libswscale-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy Rust FFI library (must be pre-built)
+COPY target/release/libstreaming_ffi.a /usr/local/lib/
+
+# Copy client source
+COPY clients/desktop/ ./
+
+# Build
+RUN mkdir build && cd build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build .
+
+# Runtime image
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    libsdl2-2.0-0 \
+    libavcodec59 \
+    libavformat59 \
+    libavutil57 \
+    libswscale6 \
+    libx11-6 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/build/streaming-client /usr/local/bin/
+
+# For X11 forwarding
+ENV DISPLAY=:0
+
+ENTRYPOINT ["streaming-client"]
+CMD ["--server", "streaming-server:8080"]

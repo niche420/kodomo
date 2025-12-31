@@ -101,18 +101,33 @@ bool StreamingClient::update() {
         packets_processed++;
 
         // Parse packet header
+        // Format: [type:1][seq:4][timestamp:8][flags:1][payload_len:4][payload:N]
         if (packet_data.size() < 18) {
             std::cerr << "Packet too short: " << packet_data.size() << " bytes\n";
             continue;
         }
 
-        // Extract packet type and payload
+        // Extract packet type
         uint8_t packet_type = packet_data[0];
 
-        // Skip header (18 bytes) to get payload
+        // Extract payload length (bytes 14-17)
+        uint32_t payload_len =
+            (static_cast<uint32_t>(packet_data[14]) << 24) |
+            (static_cast<uint32_t>(packet_data[15]) << 16) |
+            (static_cast<uint32_t>(packet_data[16]) << 8) |
+            static_cast<uint32_t>(packet_data[17]);
+
+        // Verify packet size
+        if (packet_data.size() < 18 + payload_len) {
+            std::cerr << "Incomplete packet: expected " << (18 + payload_len)
+                      << " bytes, got " << packet_data.size() << " bytes\n";
+            continue;
+        }
+
+        // Extract payload
         std::vector<uint8_t> payload(
             packet_data.begin() + 18,
-            packet_data.end()
+            packet_data.begin() + 18 + payload_len
         );
 
         // Only process video packets

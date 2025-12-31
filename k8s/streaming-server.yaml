@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streaming-server
+  namespace: game-streaming
+  labels:
+    app: streaming-server
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: streaming-server
+  template:
+    metadata:
+      labels:
+        app: streaming-server
+    spec:
+      containers:
+        - name: streaming-server
+          image: streaming-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              protocol: UDP
+              name: streaming
+            - containerPort: 9090
+              protocol: TCP
+              name: metrics
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/streaming-server
+              readOnly: true
+          env:
+            - name: RUST_LOG
+              value: "info"
+            - name: RUST_BACKTRACE
+              value: "1"
+          livenessProbe:
+            exec:
+              command:
+                - pgrep
+                - streaming-server
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: streaming-server-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streaming-server
+  namespace: game-streaming
+spec:
+  type: LoadBalancer
+  selector:
+    app: streaming-server
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: UDP
+      name: streaming
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: metrics
+
+---

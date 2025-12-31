@@ -308,10 +308,39 @@ impl StreamingServer {
         tokio::spawn(async move {
             info!("Network loop started");
             let mut sequence = 0u32;
+            let mut client_connected = false;
+
+            // For UDP server: spawn a receive task to detect client connection
+            let transport_clone = Arc::new(tokio::sync::Mutex::new(transport));
+            let transport_recv = transport_clone.clone();
+
+            tokio::spawn(async move {
+                loop {
+                    let mut t = transport_recv.lock().await;
+                    match t.recv().await {
+                        Ok(data) => {
+                            debug!("Received {} bytes from client (likely control/input data)", data.len());
+                            // TODO: Handle input packets
+                        }
+                        Err(e) => {
+                            debug!("Receive error: {}", e);
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
+                    }
+                }
+            });
 
             loop {
                 tokio::select! {
                     Some(encoded_packet) = packet_rx.recv() => {
+                        // Wait a bit for client to connect on first packet
+                        if !client_connected {
+                            info!("Waiting for client to connect...");
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+                            client_connected = true;
+                        }
+
+                        let mut t = transport_clone.lock().await;
                         // Create network packet
                         let mut packet = Packet::new(
                             PacketType::Video,
@@ -328,7 +357,7 @@ impl StreamingServer {
                         // Serialize and send
                         let wire_data = packet.to_bytes();
 
-                        match transport.send(wire_data).await {
+                        match t.send(wire_data).await {
                             Ok(_) => {
                                 // Update metrics
                                 let mut m = metrics.write().await;
@@ -354,7 +383,8 @@ impl StreamingServer {
                 }
             }
 
-            let _ = transport.disconnect().await;
+            let mut t = transport_clone.lock().await;
+            let _ = t.disconnect().await;
             info!("Network loop stopped");
         });
 

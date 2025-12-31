@@ -114,13 +114,23 @@ std::unique_ptr<DecodedFrame> Decoder::decode(const std::vector<uint8_t>& packet
     // Fill packet with data
     impl->packet->data = const_cast<uint8_t*>(packet.data());
     impl->packet->size = static_cast<int>(packet.size());
+    impl->packet->pts = AV_NOPTS_VALUE;
+    impl->packet->dts = AV_NOPTS_VALUE;
 
     // Send packet to decoder
     int ret = avcodec_send_packet(impl->context, impl->packet);
     if (ret < 0) {
-        std::cerr << "Error sending packet to decoder\n";
+        char errbuf[AV_ERROR_MAX_STRING_SIZE];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        std::cerr << "Error sending packet to decoder: " << errbuf << " (" << ret << ")\n";
+
+        // Reset packet
+        av_packet_unref(impl->packet);
         return nullptr;
     }
+
+    // Unref packet after sending
+    av_packet_unref(impl->packet);
 
     // Receive decoded frame
     ret = avcodec_receive_frame(impl->context, impl->frame);

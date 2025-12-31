@@ -1,7 +1,7 @@
 use super::*;
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use crate::packet::{FLAG_FRAGMENT, FLAG_LAST_FRAGMENT};
 
 pub struct UdpTransport {
@@ -58,6 +58,10 @@ impl NetworkTransport for UdpTransport {
         let socket = self.socket.as_ref()
             .ok_or(NetworkError::SendFailed("Socket not initialized".into()))?;
 
+        // Ensure we have a peer address
+        let _peer = self.peer_addr
+            .ok_or(NetworkError::SendFailed("No peer address set. Call connect() first.".into()))?;
+
         let config = self.config.as_ref().unwrap();
 
         // Fragment large packets if needed
@@ -91,8 +95,20 @@ impl NetworkTransport for UdpTransport {
         let config = self.config.as_ref().unwrap();
         let mut buf = vec![0u8; config.max_packet_size + 128]; // Extra space for headers
 
-        let len = socket.recv(&mut buf).await
+        let (len, addr) = socket.recv_from(&mut buf).await
             .map_err(|e| NetworkError::ReceiveFailed(e.to_string()))?;
+
+        // If we don't have a peer address yet (server mode), set it from the first packet
+        if self.peer_addr.is_none() {
+            info!("UDP server: first packet from {}, setting as peer", addr);
+            // Connect to this peer for future sends
+            if let Err(e) = socket.connect(addr).await {
+                warn!("Failed to connect to peer {}: {}", addr, e);
+            } else {
+                self.peer_addr = Some(addr);
+                info!("UDP server: connected to client {}", addr);
+            }
+        }
 
         buf.truncate(len);
 
@@ -124,6 +140,10 @@ impl NetworkTransport for UdpTransport {
 
 impl UdpTransport {
     async fn send_fragmented(&mut self, data: Bytes) -> Result<()> {
+        // Ensure we have a peer address
+        let _peer = self.peer_addr
+            .ok_or(NetworkError::SendFailed("No peer address set. Call connect() first.".into()))?;
+
         let config = self.config.as_ref().unwrap();
         let chunk_size = config.max_packet_size - 50; // Leave room for headers
 

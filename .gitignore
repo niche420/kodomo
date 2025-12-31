@@ -1,0 +1,74 @@
+# Rust
+/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# C/C++
+*.o
+*.obj
+*.exe
+*.out
+*.app
+*.lib
+*.a
+*.dll
+*.dylib
+clients/desktop/build/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# vcpkg
+clients/desktop/vcpkg/downloads/
+clients/desktop/vcpkg/buildtrees/
+clients/desktop/vcpkg/packages/
+clients/desktop/vcpkg/installed/
+
+# IDEs
+.idea/
+.vscode/
+.vs/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Android
+clients/mobile/android/.gradle/
+clients/mobile/android/build/
+clients/mobile/android/local.properties
+clients/mobile/android/.idea/
+clients/mobile/android/*.iml
+clients/mobile/android/.externalNativeBuild/
+clients/mobile/android/.cxx/

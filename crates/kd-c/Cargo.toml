@@ -1,0 +1,22 @@
+[package]
+name = "kd-c"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+kd-core = { path = "../kd-core" }
+kd-capture = { path = "../kd-capture" }
+kd-encoder = { path = "../kd-encoder" }
+kd-network = { path = "../kd-network" }
+kd-input = { path = "../kd-input" }
+
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+libc.workspace = true
+
+[build-dependencies]
+cbindgen = "0.29.2"

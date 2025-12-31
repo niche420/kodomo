@@ -1,0 +1,22 @@
+[package]
+name = "kd-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kd-core = { path = "../kd-core" }
+kd-capture = { path = "../kd-capture" }
+kd-encoder = { path = "../kd-encoder" }
+kd-network = { path = "../kd-network" }
+kd-input = { path = "../kd-input" }
+
+anyhow.workspace = true
+bytes.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+thiserror.workspace = true
+serde.workspace = true
+toml = "0.9.8"
+clap = { version = "4.4", features = ["derive"] }

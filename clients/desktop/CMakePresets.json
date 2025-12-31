@@ -1,0 +1,15 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "dev",
+      "generator": "Visual Studio 17 2022",
+      "binaryDir": "build",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "CMAKE_GENERATOR_PLATFORM": "x64"
+      }
+    }
+  ]
+}

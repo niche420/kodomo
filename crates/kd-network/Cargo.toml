@@ -1,0 +1,32 @@
+[package]
+name = "kd-network"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+bytes.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# Holy shit bruh, can't upgrade a whole fucking major version cuz of doxxing
+# It get real in da trenches
+bincode = {version = "2.0.1", features = ["serde"]}
+
+# WebRTC support
+webrtc = "0.14.0"
+webrtc-util = "0.12.0"
+
+# UDP
+socket2 = "0.6.1"
+
+# Async channels
+tokio-util = { version = "0.7", features = ["codec"] }
+
+[features]
+default = ["webrtc-transport", "udp-transport"]
+webrtc-transport = []
+udp-transport = []

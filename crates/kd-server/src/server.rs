@@ -78,7 +78,7 @@ impl StreamingServer {
             .map_err(|e| anyhow::anyhow!("Capture init failed: {}", e))?;
 
         let capture_config = CaptureConfig {
-            monitor_index: self.config.capture.monitor_index,
+            mode: self.config.capture.mode,
             width: self.config.video.width,
             height: self.config.video.height,
             fps: self.config.video.fps,

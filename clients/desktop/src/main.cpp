@@ -3,6 +3,7 @@
 #include <csignal>
 #include <atomic>
 #include "client.hpp"
+#include <SDL3/SDL_main.h>
 
 std::atomic<bool> g_running{true};
 

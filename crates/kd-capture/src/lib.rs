@@ -7,7 +7,6 @@ mod macos;
 
 use std::time::Instant;
 use thiserror::Error;
-use crate::win32::kd_win32;
 
 pub type Result<T> = std::result::Result<T, CaptureError>;
 
@@ -27,11 +26,26 @@ pub enum CaptureError {
 
     #[error("Timeout waiting for frame")]
     Timeout,
+
+    #[error("Monitor not found")]
+    MonitorNotFound,
+
+    #[cfg(target_os = "windows")]
+    #[error("Windows API Error: {0}")]
+    WindowsError(#[from] windows::core::Error),
+}
+
+
+#[derive(Debug, Clone)]
+pub enum CaptureMode {
+    Monitor(u32),
+    Window(String),
+    Unknown,
 }
 
 #[derive(Debug, Clone)]
 pub struct CaptureConfig {
-    pub monitor_index: u32,
+    pub mode: CaptureMode,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
@@ -40,7 +54,7 @@ pub struct CaptureConfig {
 impl Default for CaptureConfig {
     fn default() -> Self {
         Self {
-            monitor_index: 0,
+            mode: CaptureMode::Monitor(0),
             width: 1920,
             height: 1080,
             fps: 60,
@@ -85,7 +99,7 @@ pub trait ScreenCapture: Send + Sync {
 
 // Select the correct platform implementation at compile time
 #[cfg(target_os = "windows")]
-type PlatformCapture = kd_win32::DxgiCapture;
+type PlatformCapture = win32::DirectXCapture;
 
 #[cfg(target_os = "linux")]
 type PlatformCapture = linux::X11Capture;
@@ -108,26 +122,24 @@ impl ScreenCaptureManager {
         {
             tracing::info!("Creating screen capture manager for platform");
             Ok(Self {
-                inner: PlatformCapture::new()?,
+                inner: PlatformCapture::default(),
             })
         }
     }
-}
 
-impl ScreenCapture for ScreenCaptureManager {
-    fn init(&mut self, config: CaptureConfig) -> Result<()> {
+    pub fn init(&mut self, config: CaptureConfig) -> Result<()> {
         self.inner.init(config)
     }
 
-    fn capture_frame(&mut self) -> Result<CapturedFrame> {
+    pub fn capture_frame(&mut self) -> Result<CapturedFrame> {
         self.inner.capture_frame()
     }
 
-    fn get_monitors(&self) -> Result<Vec<MonitorInfo>> {
+    pub fn get_monitors(&self) -> Result<Vec<MonitorInfo>> {
         self.inner.get_monitors()
     }
 
-    fn shutdown(&mut self) -> Result<()> {
+    pub fn shutdown(&mut self) -> Result<()> {
         self.inner.shutdown()
     }
 }

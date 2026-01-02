@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use anyhow::{Context, Result};
+use kd_capture::{CaptureConfig, CaptureMode};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -76,11 +77,6 @@ pub enum Transport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CaptureConfig {
-    pub monitor_index: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputConfig {
     pub keyboard_enabled: bool,
     pub mouse_enabled: bool,
@@ -118,7 +114,10 @@ impl Default for Config {
                 max_packet_size: 1400,
             },
             capture: CaptureConfig {
-                monitor_index: 0,
+                mode: CaptureMode::Unknown,
+                width: 0,
+                height: 0,
+                fps: 0,
             },
             input: InputConfig {
                 keyboard_enabled: true,

@@ -67,9 +67,6 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Apply CLI overrides
-    if let Some(monitor) = args.monitor {
-        config.capture.monitor_index = monitor;
-    }
     if let Some(port) = args.port {
         config.network.port = port;
     }

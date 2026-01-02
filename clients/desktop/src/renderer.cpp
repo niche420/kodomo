@@ -28,8 +28,7 @@ bool Renderer::initialize() {
 
     renderer_ = SDL_CreateRenderer(
         window_,
-        -1,
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
+        NULL
     );
 
     if (!renderer_) {
@@ -73,7 +72,7 @@ void Renderer::render(const DecodedFrame& frame) {
     }
 
     // Update texture with frame data
-    if (SDL_UpdateTexture(texture_, nullptr, frame.data.data(), frame.stride) != 0) {
+    if (SDL_UpdateTexture(texture_, nullptr, frame.data.data(), frame.stride)) {
         std::cerr << "SDL_UpdateTexture failed: " << SDL_GetError() << std::endl;
         return;
     }
@@ -84,13 +83,13 @@ void Renderer::render(const DecodedFrame& frame) {
         return;
     }
 
-    if (SDL_RenderClear(renderer_) != 0) {
+    if (SDL_RenderClear(renderer_)) {
         std::cerr << "SDL_RenderClear failed: " << SDL_GetError() << std::endl;
         // still attempt to present texture (optional), but bail out to avoid crash
         return;
     }
 
-    if (SDL_RenderCopy(renderer_, texture_, nullptr, nullptr) != 0) {
+    if (SDL_RenderTexture(renderer_, texture_, nullptr, nullptr)) {
         std::cerr << "SDL_RenderCopy failed: " << SDL_GetError() << std::endl;
     }
 
@@ -105,11 +104,11 @@ void Renderer::present() {
     }
 
     if (texture_) {
-        if (SDL_RenderClear(renderer_) != 0) {
+        if (!SDL_RenderClear(renderer_)) {
             std::cerr << "SDL_RenderClear failed: " << SDL_GetError() << std::endl;
             return;
         }
-        if (SDL_RenderCopy(renderer_, texture_, nullptr, nullptr) != 0) {
+        if (!SDL_RenderTexture(renderer_, texture_, nullptr, nullptr)) {
             std::cerr << "SDL_RenderCopy failed: " << SDL_GetError() << std::endl;
             return;
         }
@@ -117,7 +116,7 @@ void Renderer::present() {
     }
     else {
         // No texture: clear to black (optional) and present
-        if (SDL_RenderClear(renderer_) != 0) {
+        if (!SDL_RenderClear(renderer_)) {
             std::cerr << "SDL_RenderClear failed: " << SDL_GetError() << std::endl;
             return;
         }

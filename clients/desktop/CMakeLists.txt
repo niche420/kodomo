@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(StreamingClient VERSION 0.1.0)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -17,9 +17,9 @@ endif()
 message(STATUS "Building for platform: ${PLATFORM_NAME}")
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 
-# Find SDL2
-find_package(SDL2 REQUIRED)
-include_directories(${SDL2_INCLUDE_DIRS})
+# Find SDL3
+find_package(SDL3 CONFIG REQUIRED)
+include_directories(${SDL3_INCLUDE_DIRS})
 
 # Find FFmpeg using pkg-config
 find_package(PkgConfig REQUIRED)
@@ -109,18 +109,17 @@ endif()
 
 # Link libraries
 target_link_libraries(streaming-client
-    SDL2::SDL2
-    SDL2::SDL2main
+    SDL3::SDL3
     ${RUST_LIB}
     ${FFMPEG_LIBRARIES}
     ${PLATFORM_LIBS}
 )
 
-# Copy SDL2 DLL on Windows
+# Copy SDL3 DLL on Windows
 if(WIN32)
     add_custom_command(TARGET streaming-client POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:SDL2::SDL2>
+        $<TARGET_FILE:SDL3::SDL3>
         $<TARGET_FILE_DIR:streaming-client>
     )
 endif()
@@ -134,7 +133,7 @@ message(STATUS "Configuration Summary:")
 message(STATUS "  Platform: ${PLATFORM_NAME}")
 message(STATUS "  C++ Standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "  SDL2: ${SDL2_VERSION}")
+message(STATUS "  SDL3: ${SDL3_VERSION}")
 message(STATUS "  FFmpeg: ${FFMPEG_VERSION}")
 message(STATUS "  Rust Library: ${RUST_LIB}")
 message(STATUS "")

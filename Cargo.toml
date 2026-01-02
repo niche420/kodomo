@@ -1,6 +1,10 @@
 [workspace]
 members = ["crates/kd-core", "crates/kd-encoder", "crates/kd-c", "crates/kd-network", "crates/kd-capture", "crates/kd-input", "crates/kd-server"]
 resolver = "2"
+default-members = [
+    "crates/kd-c",
+    "crates/kd-server"
+]
 
 [workspace.package]
 version = "0.1.0"

@@ -52,20 +52,16 @@ include_directories(
 )
 
 # Rust library path
-set(RUST_TARGET_DIR ${CMAKE_SOURCE_DIR}/../../target/release)
+set(RUST_TARGET_DIR ${CMAKE_SOURCE_DIR}/../../target)
 
-# Check if Rust library exists
 if(WIN32)
-    set(RUST_LIB ${RUST_TARGET_DIR}/kd_c.lib)
-elseif(APPLE)
-    set(RUST_LIB ${RUST_TARGET_DIR}/libkd_c.a)
+    set(RUST_LIB $<IF:$<CONFIG:Debug>,
+        ${RUST_TARGET_DIR}/debug/kd_c.lib,
+        ${RUST_TARGET_DIR}/release/kd_c.lib>)
 else()
-    set(RUST_LIB ${RUST_TARGET_DIR}/libkd_c.a)
-endif()
-
-if(NOT EXISTS ${RUST_LIB})
-    message(WARNING "Rust library not found at: ${RUST_LIB}")
-    message(WARNING "Build it with: cargo build --release -p streaming-ffi")
+    set(RUST_LIB $<IF:$<CONFIG:Debug>,
+        ${RUST_TARGET_DIR}/debug/libkd_c.a,
+        ${RUST_TARGET_DIR}/release/libkd_c.a>)
 endif()
 
 # Platform-specific libraries

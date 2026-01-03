@@ -56,7 +56,7 @@ A high-performance, low-latency game streaming system written in Rust with cross
 cargo build --release -p kd-server
 
 # Run the server
-cargo run --release -p kd-server -- --config example.toml
+cargo run --release -p kd-server -- --config config.toml
 ```
 
 #### Desktop Client

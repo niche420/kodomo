@@ -1,3 +1,8 @@
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tracing::info;
+use crate::{CaptureConfig, CaptureError, CaptureHandler, CaptureMode, MonitorInfo, Result, ScreenCapture};
+
 mod d3d11;
 mod window;
 mod frame_pool;
@@ -5,58 +10,54 @@ mod monitor;
 mod dd;
 mod gfx_capture;
 
-use std::{mem, ptr};
-use std::time::Instant;
-use tracing::info;
-use windows::{
-    core::*,
-    Win32::Graphics::{
-        Direct3D11::*,
-        Dxgi::{Common::*, *},
-    },
-};
-use windows::Graphics::DirectX::DirectXPixelFormat;
-use crate::{CaptureConfig, CaptureError, CaptureMode, CapturedFrame, MonitorInfo, PixelFormat, ScreenCapture};
-use crate::win32::dd::DxgiDuplication;
-use crate::win32::gfx_capture::GfxCapture;
-use crate::win32::monitor::Monitor;
-use crate::win32::window::Window;
-
-#[derive(Debug)]
-pub enum CaptureItemType {
-    Monitor(DxgiDuplication),
-    Window(GfxCapture),
-    Unknown,
+pub struct DirectXCapture {
+    should_stop: Arc<AtomicBool>,
 }
 
-#[derive(Debug, Default)]
-pub struct DirectXCapture(Option<CaptureItemType>);
+impl DirectXCapture {
+    pub fn new() -> Result<Self> {
+        Ok(Self {
+            should_stop: Arc::new(AtomicBool::new(false)),
+        })
+    }
+}
 
 impl ScreenCapture for DirectXCapture {
-    fn init(&mut self, config: CaptureConfig) -> crate::Result<()> {
-        info!("Initializing Windows DXGI capture: {:?}", config);
+    fn start<H: CaptureHandler>(&mut self, config: CaptureConfig, handler: Arc<Mutex<H>>) -> Result<()> {
+        self.should_stop.store(false, Ordering::Relaxed);
 
-        self.0 = match config.mode {
+        info!("Starting DirectX capture: {:?}", config);
+
+        match config.mode {
             CaptureMode::Window(name) => {
-                Some(CaptureItemType::Window(GfxCapture::new(name)?))
+                gfx_capture::start_window_capture(name, &self.should_stop, handler)
             }
             CaptureMode::Monitor(idx) => {
-                Some(CaptureItemType::Monitor(DxgiDuplication::from_idx(idx)?))
+                dd::start_monitor_capture(config, &self.should_stop, handler)
             }
             CaptureMode::Unknown => {
-                None
+                Err(CaptureError::InitFailed("Unknown capture mode".into()))
             }
-        };
+        }
+    }
+
+    fn stop(&self) -> Result<()> {
+        info!("Stopping DirectX capture");
+        self.should_stop.store(true, Ordering::Relaxed);
+
+        // Post quit message to stop message loop
+        unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::*;
+            use windows::Win32::System::Threading::GetCurrentThreadId;
+            let _ = PostThreadMessageW(GetCurrentThreadId(), WM_QUIT,
+                                       windows::Win32::Foundation::WPARAM(0),
+                                       windows::Win32::Foundation::LPARAM(0));
+        }
 
         Ok(())
     }
 
-    fn capture_frame(&mut self) -> crate::Result<CapturedFrame> {
-
-    }
-
-    fn get_monitors(&self) -> crate::Result<Vec<MonitorInfo>> {
-        // TODO: Enumerate all monitors
+    fn get_monitors(&self) -> Result<Vec<MonitorInfo>> {
         Ok(vec![MonitorInfo {
             id: 0,
             name: "Primary Monitor".into(),
@@ -65,10 +66,5 @@ impl ScreenCapture for DirectXCapture {
             refresh_rate: 60,
             is_primary: true,
         }])
-    }
-
-    fn shutdown(&mut self) -> crate::Result<()> {
-        info!("Shutting down Windows capture");
-        Ok(())
     }
 }

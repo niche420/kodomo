@@ -37,6 +37,11 @@ impl FramePool {
         self.frame_arrived = Some(self.pool.FrameArrived(&frame_arrived)?);
         Ok(())
     }
+    
+    pub fn start(&mut self) -> Result<()> {
+        self.session.StartCapture()?;
+        Ok(())
+    }
 }
 
 impl Drop for FramePool {

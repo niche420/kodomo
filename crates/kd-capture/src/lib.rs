@@ -5,8 +5,10 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use thiserror::Error;
+use serde::{Deserialize, Serialize};
 
 pub type Result<T> = std::result::Result<T, CaptureError>;
 
@@ -27,8 +29,14 @@ pub enum CaptureError {
     #[error("Timeout waiting for frame")]
     Timeout,
 
+    #[error("Window not found")]
+    WindowNotFound,
+
     #[error("Monitor not found")]
     MonitorNotFound,
+
+    #[error("Platform error: {0}")]
+    PlatformError(String),
 
     #[cfg(target_os = "windows")]
     #[error("Windows API Error: {0}")]
@@ -36,14 +44,15 @@ pub enum CaptureError {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum CaptureMode {
     Monitor(u32),
     Window(String),
     Unknown,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureConfig {
     pub mode: CaptureMode,
     pub width: u32,
@@ -89,12 +98,25 @@ pub struct MonitorInfo {
     pub is_primary: bool,
 }
 
+pub trait CaptureHandler: Send + 'static {
+    /// Called when a new frame is captured
+    fn on_frame_arrived(&mut self, frame: CapturedFrame) -> Result<()>;
+
+    /// Called when capture is closed/stopped
+    fn on_capture_closed(&mut self);
+}
+
 /// Trait that all platform-specific capture implementations must provide
-pub trait ScreenCapture: Send + Sync {
-    fn init(&mut self, config: CaptureConfig) -> Result<()>;
-    fn capture_frame(&mut self) -> Result<CapturedFrame>;
+pub trait ScreenCapture: Send {
+    /// Start capturing with the given handler
+    /// This call is blocking and will run until capture is stopped
+    fn start<H: CaptureHandler>(&mut self, config: CaptureConfig, handler: Arc<Mutex<H>>) -> Result<()>;
+
+    /// Stop the capture (can be called from another thread)
+    fn stop(&self) -> Result<()>;
+
+    /// Get available monitors
     fn get_monitors(&self) -> Result<Vec<MonitorInfo>>;
-    fn shutdown(&mut self) -> Result<()>;
 }
 
 // Select the correct platform implementation at compile time
@@ -122,24 +144,22 @@ impl ScreenCaptureManager {
         {
             tracing::info!("Creating screen capture manager for platform");
             Ok(Self {
-                inner: PlatformCapture::default(),
+                inner: PlatformCapture::new()?,
             })
         }
     }
 
-    pub fn init(&mut self, config: CaptureConfig) -> Result<()> {
-        self.inner.init(config)
+    /// Start capturing (blocking call)
+    pub fn start<H: CaptureHandler>(&mut self, config: CaptureConfig, handler: Arc<Mutex<H>>) -> Result<()> {
+        self.inner.start(config, handler)
     }
 
-    pub fn capture_frame(&mut self) -> Result<CapturedFrame> {
-        self.inner.capture_frame()
+    /// Stop capturing
+    pub fn stop(&self) -> Result<()> {
+        self.inner.stop()
     }
 
     pub fn get_monitors(&self) -> Result<Vec<MonitorInfo>> {
         self.inner.get_monitors()
-    }
-
-    pub fn shutdown(&mut self) -> Result<()> {
-        self.inner.shutdown()
     }
 }

@@ -72,7 +72,7 @@ void Renderer::render(const DecodedFrame& frame) {
     }
 
     // Update texture with frame data
-    if (SDL_UpdateTexture(texture_, nullptr, frame.data.data(), frame.stride)) {
+    if (!SDL_UpdateTexture(texture_, nullptr, frame.data.data(), frame.stride)) {
         std::cerr << "SDL_UpdateTexture failed: " << SDL_GetError() << std::endl;
         return;
     }
@@ -83,13 +83,13 @@ void Renderer::render(const DecodedFrame& frame) {
         return;
     }
 
-    if (SDL_RenderClear(renderer_)) {
+    if (!SDL_RenderClear(renderer_)) {
         std::cerr << "SDL_RenderClear failed: " << SDL_GetError() << std::endl;
         // still attempt to present texture (optional), but bail out to avoid crash
         return;
     }
 
-    if (SDL_RenderTexture(renderer_, texture_, nullptr, nullptr)) {
+    if (!SDL_RenderTexture(renderer_, texture_, nullptr, nullptr)) {
         std::cerr << "SDL_RenderCopy failed: " << SDL_GetError() << std::endl;
     }
 

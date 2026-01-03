@@ -1,7 +1,8 @@
 use crate::config::Config;
 use crate::metrics::MetricsCollector;
 use anyhow::Result;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::time::{interval, Duration};
 use tracing::{debug, error, info, warn};
@@ -11,6 +12,7 @@ use kd_encoder::{EncoderConfig, EncoderFactory, RawFrame, VideoEncoder, PixelFor
 use kd_network::{NetworkConfig, NetworkTransport, TransportFactory, Packet, PacketType};
 use kd_input::{InputHandler, InputEvent, InputConfig};
 use bytes::Bytes;
+use tracing_subscriber::util::SubscriberInitExt;
 
 const FRAME_CHANNEL_SIZE: usize = 8;
 const PACKET_CHANNEL_SIZE: usize = 32;
@@ -32,6 +34,33 @@ struct EncodedPacketWithMeta {
     data: Bytes,
     is_keyframe: bool,
     frame_number: u64,
+}
+
+struct FrameCaptureHandler {
+    frame_tx: mpsc::Sender<CapturedFrame>,
+    frame_count: Arc<AtomicU64>,
+}
+
+impl kd_capture::CaptureHandler for FrameCaptureHandler {
+    fn on_frame_arrived(&mut self, frame: kd_capture::CapturedFrame) -> kd_capture::Result<()> {
+        let count = self.frame_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+        // Non-blocking send
+        if self.frame_tx.try_send(frame).is_err() {
+            // Channel full, drop frame
+            tracing::warn!("Frame dropped - encoder too slow");
+        }
+
+        if count % 60 == 0 {
+            tracing::debug!("Captured {} frames", count);
+        }
+
+        Ok(())
+    }
+
+    fn on_capture_closed(&mut self) {
+        tracing::info!("Capture closed by system");
+    }
 }
 
 impl StreamingServer {
@@ -73,88 +102,48 @@ impl StreamingServer {
     async fn start_capture_loop(&mut self) -> Result<()> {
         info!("Initializing screen capture...");
 
-        // Create and initialize capture
-        let mut capture = ScreenCaptureManager::new()
-            .map_err(|e| anyhow::anyhow!("Capture init failed: {}", e))?;
-
         let capture_config = CaptureConfig {
-            mode: self.config.capture.mode,
+            mode: self.config.capture.mode.clone(),
             width: self.config.video.width,
             height: self.config.video.height,
             fps: self.config.video.fps,
         };
 
-        capture.init(capture_config)
-            .map_err(|e| anyhow::anyhow!("Capture config failed: {}", e))?;
+        info!("✓ Screen capture configured: {}x{} @ {} FPS",
+          self.config.video.width,
+          self.config.video.height,
+          self.config.video.fps);
 
-        info!("✓ Screen capture initialized: {}x{} @ {} FPS",
-              self.config.video.width,
-              self.config.video.height,
-              self.config.video.fps);
+        let handler = Arc::new(Mutex::new(FrameCaptureHandler {
+            frame_tx: self.frame_tx.clone(),
+            frame_count: Arc::new(AtomicU64::new(0)),
+        }));
 
-        // Spawn capture task
-        let frame_tx = self.frame_tx.clone();
-        let metrics = self.metrics.clone();
-        let mut shutdown_rx = self.shutdown_tx.subscribe();
-        let fps = self.config.video.fps;
+        // Create capture manager for stopping
+        let capture = Arc::new(Mutex::new(kd_capture::ScreenCaptureManager::new()?));
 
-        tokio::spawn(async move {
-            let frame_interval = Duration::from_micros(1_000_000 / fps as u64);
-            let mut interval = interval(frame_interval);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // Spawn capture in blocking thread
+        let capture_config_clone = capture_config.clone();
+        let mut capture_start = capture.clone();
+        tokio::task::spawn_blocking(move || {
+            info!("Starting capture (blocking)...");
 
-            let mut frame_number = 0u64;
-            let mut consecutive_errors = 0u32;
-
-            info!("Capture loop started");
-
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        match capture.capture_frame() {
-                            Ok(frame) => {
-                                consecutive_errors = 0;
-                                frame_number += 1;
-
-                                // Update metrics
-                                {
-                                    let mut m = metrics.write().await;
-                                    m.frames_captured += 1;
-                                }
-
-                                // Send frame to encoder
-                                if let Err(e) = frame_tx.send(frame).await {
-                                    error!("Failed to send frame to encoder: {}", e);
-                                    break;
-                                }
-
-                                if frame_number % 60 == 0 {
-                                    debug!("Captured {} frames", frame_number);
-                                }
-                            }
-                            Err(e) => {
-                                // NoFrame is normal when nothing changed
-                                if !matches!(e, kd_capture::CaptureError::NoFrame) {
-                                    consecutive_errors += 1;
-                                    warn!("Capture error ({}): {}", consecutive_errors, e);
-
-                                    if consecutive_errors > 100 {
-                                        error!("Too many consecutive capture errors, stopping");
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ = shutdown_rx.recv() => {
-                        info!("Capture loop shutting down");
-                        break;
-                    }
-                }
+            // This blocks until stopped
+            if let Ok(mut c) = capture_start.lock() {
+                c.start(capture_config_clone, handler);
             }
 
-            let _ = capture.shutdown();
-            info!("Capture loop stopped");
+            info!("Capture thread exited");
+        });
+
+        // Spawn shutdown listener
+        let mut shutdown_rx = self.shutdown_tx.subscribe();
+        tokio::spawn(async move {
+            let _ = shutdown_rx.recv().await;
+            info!("Stopping capture...");
+            if let Ok(c) = capture.lock() {
+                c.stop();
+            }
         });
 
         Ok(())

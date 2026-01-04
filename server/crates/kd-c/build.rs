@@ -6,7 +6,7 @@ fn main() {
 
     // Output directory for C header
     let output_file = PathBuf::from(&crate_dir)
-        .join("../../clients/desktop/include/kodomo.h");
+        .join("../../../client/shared/include/kodomo.h");
 
     // Create parent directory if it doesn't exist
     if let Some(parent) = output_file.parent() {

@@ -1,6 +1,6 @@
 # Rust
-/target/
-Cargo.lock
+server/target/
+server/Cargo.lock
 **/*.rs.bk
 *.pdb
 
@@ -37,7 +37,7 @@ wheels/
 *.a
 *.dll
 *.dylib
-clients/desktop/build/
+client/desktop/build/
 
 # CMake
 CMakeCache.txt
@@ -46,10 +46,10 @@ cmake_install.cmake
 compile_commands.json
 
 # vcpkg
-clients/desktop/vcpkg/downloads/
-clients/desktop/vcpkg/buildtrees/
-clients/desktop/vcpkg/packages/
-clients/desktop/vcpkg/installed/
+client/vcpkg/downloads/
+client/vcpkg/buildtrees/
+client/vcpkg/packages/
+client/vcpkg/installed/
 
 # IDEs
 .idea/
@@ -65,10 +65,13 @@ Thumbs.db
 Desktop.ini
 
 # Android
-clients/mobile/android/.gradle/
-clients/mobile/android/build/
-clients/mobile/android/local.properties
-clients/mobile/android/.idea/
-clients/mobile/android/*.iml
-clients/mobile/android/.externalNativeBuild/
-clients/mobile/android/.cxx/
+*.apk
+*.aab
+client/mobile/android/app/.cxx/
+client/mobile/android/.gradle/
+client/mobile/android/build/
+client/mobile/android/local.properties
+client/mobile/android/.idea/
+client/mobile/android/*.iml
+client/mobile/android/.externalNativeBuild/
+client/mobile/android/.cxx/

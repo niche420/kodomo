@@ -39,7 +39,7 @@ A high-performance, low-latency game streaming system written in Rust with cross
 
 **Desktop Client (C++):**
 - CMake 3.20+
-- C++17 compiler
+- C++23 compiler
 - vcpkg (for dependencies)
 - FFmpeg, SDL2, OpenGL
 

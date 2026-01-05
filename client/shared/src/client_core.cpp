@@ -28,23 +28,21 @@ bool ClientCore::initialize(const ClientConfig& config, const PlatformCallbacks&
     callbacks_ = callbacks;
 
     std::cout << "✓ Initializing Client Core" << std::endl;
-    std::cout << "  Platform: " << (config.is_mobile ? "Mobile" : "Desktop") << std::endl;
-    std::cout << "  Resolution: " << config.width << "x" << config.height << std::endl;
-    std::cout << "  Tailscale: " << (config.use_tailscale ? "Enabled" : "Disabled") << std::endl;
 
-    // Create components
-    decoder_ = std::make_unique<Decoder>();
-    renderer_ = std::make_unique<Renderer>(window);
-    input_handler_ = std::make_unique<InputHandler>(window);
-    network_ = std::make_unique<NetworkClient>();
-    connection_manager_ = std::make_unique<ConnectionManager>();
+    decoder_ = create_platform_decoder();
 
-    if (!decoder_->initialize()) {
+    if (!decoder_ || !decoder_->initialize()) {
         if (callbacks_.on_error) {
             callbacks_.on_error("Failed to initialize decoder");
         }
         return false;
     }
+
+    // Create platform-agnostic components
+    renderer_ = std::make_unique<Renderer>(window);
+    input_handler_ = std::make_unique<InputHandler>(window);
+    network_ = std::make_unique<NetworkClient>();
+    connection_manager_ = std::make_unique<ConnectionManager>();
 
     if (!renderer_->initialize()) {
         if (callbacks_.on_error) {
@@ -239,11 +237,6 @@ void ClientCore::process_packets() {
                 stats_.frames_rendered++;
             }
         }
-    }
-
-    // Present last frame if no packets processed
-    if (packets_processed == 0 && renderer_) {
-        renderer_->present();
     }
 }
 

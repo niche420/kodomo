@@ -5,8 +5,7 @@
 #include <functional>
 #include <SDL3/SDL.h>
 
-// Forward declarations
-class Decoder;
+class IDecoder;
 class Renderer;
 class InputHandler;
 class NetworkClient;
@@ -102,7 +101,7 @@ private:
     bool connected_ = false;
     bool paused_ = false;
 
-    std::unique_ptr<Decoder> decoder_;
+    std::unique_ptr<IDecoder> decoder_;
     std::unique_ptr<Renderer> renderer_;
     std::unique_ptr<InputHandler> input_handler_;
     std::unique_ptr<NetworkClient> network_;

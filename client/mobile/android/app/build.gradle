@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace 'com.kodomo.client'
+    namespace 'com.kodomo'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.kodomo.client"
+        applicationId "com.kodomo"
         minSdk 24
         targetSdk 34
         versionCode 1
@@ -22,8 +22,7 @@ android {
             cmake {
                 cppFlags '-std=c++20', '-frtti', '-fexceptions'
                 arguments '-DANDROID_STL=c++_shared',
-                          '-DANDROID_PLATFORM=android-24',
-                          '-DPRESET_NAME=dev'
+                        '-DANDROID_PLATFORM=android-24'
             }
         }
     }
@@ -32,7 +31,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
-                         'proguard-rules.pro'
+                    'proguard-rules.pro'
         }
         debug {
             debuggable true
@@ -57,6 +56,7 @@ android {
 
     buildFeatures {
         viewBinding true
+        // NO prefab - we're building SDL3 from source
     }
 
     ndkVersion '26.1.10909125'
@@ -82,4 +82,6 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+
+    // NO SDL3 dependency here - we build from submodule
 }

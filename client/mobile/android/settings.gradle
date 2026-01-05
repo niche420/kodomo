@@ -11,6 +11,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // NO SDL3 snapshot repository - we build from submodule
     }
 }
 

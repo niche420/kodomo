@@ -1,3 +1,6 @@
 [submodule "client/vcpkg"]
 	path = client/vcpkg
 	url = https://github.com/microsoft/vcpkg.git
+[submodule "client/external/SDL"]
+	path = client/external/SDL
+	url = https://github.com/libsdl-org/SDL.git

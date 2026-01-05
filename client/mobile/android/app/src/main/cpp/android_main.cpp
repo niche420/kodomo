@@ -95,16 +95,13 @@ Java_com_kodomo_client_NativeClient_nativeInit(
 
     // Get DPI scale
     float dpi = 160.0f; // Default
-    if (SDL_GetDisplayDPI(0, nullptr, &dpi, nullptr) == 0) {
-        config.dpi_scale = dpi / 160.0f;
-    }
 
     // Create client
     g_client = std::make_unique<ClientCore>();
 
     // Initialize
     auto callbacks = create_android_callbacks();
-    if (!g_client->initialize(config, callbacks)) {
+    if (!g_client->initialize(config, callbacks, nullptr)) {
         LOGE("Failed to initialize client core");
         g_client.reset();
         return JNI_FALSE;

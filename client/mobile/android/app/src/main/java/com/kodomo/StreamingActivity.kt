@@ -35,16 +35,6 @@ class StreamingActivity : Activity() {
         // Keep screen on
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Fullscreen immersive mode
-        window.decorView.systemUiVisibility = (
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            or View.SYSTEM_UI_FLAG_FULLSCREEN
-            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-        )
-
         // Get connection parameters
         serverAddress = intent.getStringExtra(EXTRA_SERVER_ADDRESS) ?: "127.0.0.1:8080"
         useTailscale = intent.getBooleanExtra(EXTRA_USE_TAILSCALE, false)

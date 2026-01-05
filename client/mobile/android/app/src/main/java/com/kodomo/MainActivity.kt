@@ -7,7 +7,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.kodomo.client.R
+import com.kodomo.R
 
 /**
  * Main activity - connection setup screen

@@ -22,7 +22,6 @@ PlatformCallbacks create_android_callbacks() {
 
     callbacks.on_error = [](const std::string& error) {
         LOGE("Error: %s", error.c_str());
-        // TODO: Call back to Java layer
         JNIBridge::call_java_error_callback(error);
     };
 
@@ -55,14 +54,14 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
 
 // Initialize the client
 JNIEXPORT jboolean JNICALL
-Java_com_kodomo_client_NativeClient_nativeInit(
-    JNIEnv* env,
-    jobject thiz,
-    jstring server_address,
-    jint width,
-    jint height,
-    jboolean use_tailscale,
-    jstring tailscale_hostname
+Java_com_kodomo_NativeClient_nativeInit(
+        JNIEnv* env,
+        jobject thiz,
+        jstring server_address,
+        jint width,
+        jint height,
+        jboolean use_tailscale,
+        jstring tailscale_hostname
 ) {
     LOGI("nativeInit called");
 
@@ -93,8 +92,13 @@ Java_com_kodomo_client_NativeClient_nativeInit(
     config.is_mobile = true;
     config.touch_controls = true;
 
-    // Get DPI scale
-    float dpi = 160.0f; // Default
+    // Get display content scale (SDL3 API)
+    config.dpi_scale = 1.0f; // Default
+    SDL_DisplayID display_id = SDL_GetPrimaryDisplay();
+    if (display_id) {
+        config.dpi_scale = SDL_GetDisplayContentScale(display_id);
+        LOGI("Display content scale: %.2f", config.dpi_scale);
+    }
 
     // Create client
     g_client = std::make_unique<ClientCore>();
@@ -113,7 +117,7 @@ Java_com_kodomo_client_NativeClient_nativeInit(
 
 // Connect to server
 JNIEXPORT jboolean JNICALL
-Java_com_kodomo_client_NativeClient_nativeConnect(JNIEnv* env, jobject thiz) {
+Java_com_kodomo_NativeClient_nativeConnect(JNIEnv* env, jobject thiz) {
     if (!g_client) {
         LOGE("Client not initialized");
         return JNI_FALSE;
@@ -133,7 +137,7 @@ Java_com_kodomo_client_NativeClient_nativeConnect(JNIEnv* env, jobject thiz) {
 
 // Main update loop - called from Java at ~60Hz
 JNIEXPORT jboolean JNICALL
-Java_com_kodomo_client_NativeClient_nativeUpdate(JNIEnv* env, jobject thiz) {
+Java_com_kodomo_NativeClient_nativeUpdate(JNIEnv* env, jobject thiz) {
     if (!g_client) {
         return JNI_FALSE;
     }
@@ -143,7 +147,7 @@ Java_com_kodomo_client_NativeClient_nativeUpdate(JNIEnv* env, jobject thiz) {
 
 // Disconnect
 JNIEXPORT void JNICALL
-Java_com_kodomo_client_NativeClient_nativeDisconnect(JNIEnv* env, jobject thiz) {
+Java_com_kodomo_NativeClient_nativeDisconnect(JNIEnv* env, jobject thiz) {
     if (g_client) {
         LOGI("Disconnecting...");
         g_client->disconnect();
@@ -152,7 +156,7 @@ Java_com_kodomo_client_NativeClient_nativeDisconnect(JNIEnv* env, jobject thiz) 
 
 // Cleanup
 JNIEXPORT void JNICALL
-Java_com_kodomo_client_NativeClient_nativeDestroy(JNIEnv* env, jobject thiz) {
+Java_com_kodomo_NativeClient_nativeDestroy(JNIEnv* env, jobject thiz) {
     LOGI("Destroying client");
 
     if (g_client) {
@@ -167,12 +171,12 @@ Java_com_kodomo_client_NativeClient_nativeDestroy(JNIEnv* env, jobject thiz) {
 
 // Handle SDL events
 JNIEXPORT void JNICALL
-Java_com_kodomo_client_NativeClient_nativeHandleEvent(
-    JNIEnv* env,
-    jobject thiz,
-    jint event_type,
-    jfloat x,
-    jfloat y
+Java_com_kodomo_NativeClient_nativeHandleEvent(
+        JNIEnv* env,
+        jobject thiz,
+        jint event_type,
+        jfloat x,
+        jfloat y
 ) {
     if (!g_client) return;
 
@@ -188,12 +192,12 @@ Java_com_kodomo_client_NativeClient_nativeHandleEvent(
 
 // Touch events
 JNIEXPORT void JNICALL
-Java_com_kodomo_client_NativeClient_nativeTouchDown(
-    JNIEnv* env,
-    jobject thiz,
-    jfloat x,
-    jfloat y,
-    jint finger_id
+Java_com_kodomo_NativeClient_nativeTouchDown(
+        JNIEnv* env,
+        jobject thiz,
+        jfloat x,
+        jfloat y,
+        jint finger_id
 ) {
     if (g_client) {
         g_client->handle_touch_down(x, y, finger_id);
@@ -201,12 +205,12 @@ Java_com_kodomo_client_NativeClient_nativeTouchDown(
 }
 
 JNIEXPORT void JNICALL
-Java_com_kodomo_client_NativeClient_nativeTouchUp(
-    JNIEnv* env,
-    jobject thiz,
-    jfloat x,
-    jfloat y,
-    jint finger_id
+Java_com_kodomo_NativeClient_nativeTouchUp(
+        JNIEnv* env,
+        jobject thiz,
+        jfloat x,
+        jfloat y,
+        jint finger_id
 ) {
     if (g_client) {
         g_client->handle_touch_up(x, y, finger_id);
@@ -214,12 +218,12 @@ Java_com_kodomo_client_NativeClient_nativeTouchUp(
 }
 
 JNIEXPORT void JNICALL
-Java_com_kodomo_client_NativeClient_nativeTouchMove(
-    JNIEnv* env,
-    jobject thiz,
-    jfloat x,
-    jfloat y,
-    jint finger_id
+Java_com_kodomo_NativeClient_nativeTouchMove(
+        JNIEnv* env,
+        jobject thiz,
+        jfloat x,
+        jfloat y,
+        jint finger_id
 ) {
     if (g_client) {
         g_client->handle_touch_move(x, y, finger_id);
@@ -228,21 +232,21 @@ Java_com_kodomo_client_NativeClient_nativeTouchMove(
 
 // Lifecycle
 JNIEXPORT void JNICALL
-Java_com_kodomo_client_NativeClient_nativeOnPause(JNIEnv* env, jobject thiz) {
+Java_com_kodomo_NativeClient_nativeOnPause(JNIEnv* env, jobject thiz) {
     if (g_client) {
         g_client->on_pause();
     }
 }
 
 JNIEXPORT void JNICALL
-Java_com_kodomo_client_NativeClient_nativeOnResume(JNIEnv* env, jobject thiz) {
+Java_com_kodomo_NativeClient_nativeOnResume(JNIEnv* env, jobject thiz) {
     if (g_client) {
         g_client->on_resume();
     }
 }
 
 JNIEXPORT void JNICALL
-Java_com_kodomo_client_NativeClient_nativeOnLowMemory(JNIEnv* env, jobject thiz) {
+Java_com_kodomo_NativeClient_nativeOnLowMemory(JNIEnv* env, jobject thiz) {
     if (g_client) {
         g_client->on_low_memory();
     }
@@ -250,7 +254,7 @@ Java_com_kodomo_client_NativeClient_nativeOnLowMemory(JNIEnv* env, jobject thiz)
 
 // Get stats
 JNIEXPORT jstring JNICALL
-Java_com_kodomo_client_NativeClient_nativeGetStats(JNIEnv* env, jobject thiz) {
+Java_com_kodomo_NativeClient_nativeGetStats(JNIEnv* env, jobject thiz) {
     if (!g_client) {
         return env->NewStringUTF("{}");
     }
@@ -260,12 +264,12 @@ Java_com_kodomo_client_NativeClient_nativeGetStats(JNIEnv* env, jobject thiz) {
     // Create JSON string
     char buffer[256];
     snprintf(buffer, sizeof(buffer),
-        "{\"fps\":%.1f,\"latency\":%llu,\"frames_received\":%llu,\"frames_decoded\":%llu,\"frames_rendered\":%llu}",
-        stats.average_fps,
-        (unsigned long long)stats.average_latency_ms,
-        (unsigned long long)stats.frames_received,
-        (unsigned long long)stats.frames_decoded,
-        (unsigned long long)stats.frames_rendered
+             "{\"fps\":%.1f,\"latency\":%llu,\"frames_received\":%llu,\"frames_decoded\":%llu,\"frames_rendered\":%llu}",
+             stats.average_fps,
+             (unsigned long long)stats.average_latency_ms,
+             (unsigned long long)stats.frames_received,
+             (unsigned long long)stats.frames_decoded,
+             (unsigned long long)stats.frames_rendered
     );
 
     return env->NewStringUTF(buffer);

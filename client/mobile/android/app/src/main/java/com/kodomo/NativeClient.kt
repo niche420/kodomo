@@ -1,4 +1,5 @@
 package com.kodomo
+
 /**
  * JNI interface to native C++ client
  */
@@ -48,6 +49,14 @@ class NativeClient {
      * Destroy native resources
      */
     external fun nativeDestroy()
+
+    /**
+     * Handle SDL event
+     * @param eventType SDL event type
+     * @param x X coordinate (for mouse events)
+     * @param y Y coordinate (for mouse events)
+     */
+    external fun nativeHandleEvent(eventType: Int, x: Float, y: Float)
 
     /**
      * Handle touch down event

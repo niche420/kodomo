@@ -13,6 +13,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # ============================================================================
 message(STATUS "Adding SDL3 from submodule...")
 
+# Enable 16KB page size support (required for Android 15+)
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+
 set(SDL_SHARED ON CACHE BOOL "Build SDL3 as shared library" FORCE)
 set(SDL_STATIC OFF CACHE BOOL "Don't build static SDL3" FORCE)
 set(SDL_TEST OFF CACHE BOOL "Don't build SDL3 tests" FORCE)

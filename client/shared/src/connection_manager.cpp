@@ -97,6 +97,13 @@ std::optional<ConnectionManager::TailscaleStatus> ConnectionManager::get_tailsca
 }
 
 std::string ConnectionManager::resolve_tailscale_address(const std::string& hostname) {
+    #ifdef __ANDROID__
+        // On Android, Tailscale app handles DNS automatically
+        // Just append port and let the system resolve it
+        std::cout << "Android: Using Tailscale hostname directly: " << hostname << std::endl;
+        return hostname + ":8080";
+    #endif
+
     std::cout << "Resolving Tailscale hostname: " << hostname << std::endl;
 
     // Check if Tailscale is available

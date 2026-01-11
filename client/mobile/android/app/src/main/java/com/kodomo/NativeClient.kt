@@ -1,96 +1,51 @@
 package com.kodomo
 
-/**
- * JNI interface to native C++ client
- */
+import android.util.Log
+
 class NativeClient {
 
     companion object {
+        private const val TAG = "NativeClient"
+
         init {
-            System.loadLibrary("kodomo-android")
+            try {
+                Log.d(TAG, "Loading kodomo-android library...")
+                System.loadLibrary("kodomo-android")
+                Log.d(TAG, "✓ kodomo-android library loaded successfully")
+            } catch (e: UnsatisfiedLinkError) {
+                Log.e(TAG, "Failed to load kodomo-android library", e)
+                throw e
+            }
         }
     }
 
-    /**
-     * Initialize the native client
-     * @param serverAddress Server IP or hostname
-     * @param width Screen width
-     * @param height Screen height
-     * @param useTailscale Enable Tailscale hostname resolution
-     * @param tailscaleHostname Tailscale hostname (if enabled)
-     * @return true if initialized successfully
-     */
-    external fun nativeInit(
-        serverAddress: String,
-        width: Int,
-        height: Int,
-        useTailscale: Boolean,
-        tailscaleHostname: String?
-    ): Boolean
+    interface Callbacks {
+        fun onNativeError(error: String)
+        fun onNativeStatusChange(status: String)
+        fun onNativeStatsUpdate(fps: Long, latency: Long)
+    }
 
-    /**
-     * Connect to the server
-     * @return true if connected successfully
-     */
+    private var callbacks: Callbacks? = null
+    fun setCallbacks(callbacks: Callbacks) { this.callbacks = callbacks }
+
+    @Suppress("unused")
+    fun onNativeError(error: String) { Log.e(TAG, "Native error: $error"); callbacks?.onNativeError(error) }
+
+    @Suppress("unused")
+    fun onNativeStatusChange(status: String) { Log.i(TAG, "Native status: $status"); callbacks?.onNativeStatusChange(status) }
+
+    @Suppress("unused")
+    fun onNativeStatsUpdate(fps: Long, latency: Long) { callbacks?.onNativeStatsUpdate(fps, latency) }
+
+    external fun nativeInit(serverAddress: String, width: Int, height: Int, useTailscale: Boolean, tailscaleHostname: String?): Boolean
     external fun nativeConnect(): Boolean
-
-    /**
-     * Update the client (call at ~60Hz from rendering thread)
-     * @return true if still running
-     */
-    external fun nativeUpdate(): Boolean
-
-    /**
-     * Disconnect from server
-     */
     external fun nativeDisconnect()
-
-    /**
-     * Destroy native resources
-     */
     external fun nativeDestroy()
-
-    /**
-     * Handle SDL event
-     * @param eventType SDL event type
-     * @param x X coordinate (for mouse events)
-     * @param y Y coordinate (for mouse events)
-     */
-    external fun nativeHandleEvent(eventType: Int, x: Float, y: Float)
-
-    /**
-     * Handle touch down event
-     */
     external fun nativeTouchDown(x: Float, y: Float, fingerId: Int)
-
-    /**
-     * Handle touch up event
-     */
     external fun nativeTouchUp(x: Float, y: Float, fingerId: Int)
-
-    /**
-     * Handle touch move event
-     */
     external fun nativeTouchMove(x: Float, y: Float, fingerId: Int)
-
-    /**
-     * Lifecycle: activity paused
-     */
     external fun nativeOnPause()
-
-    /**
-     * Lifecycle: activity resumed
-     */
     external fun nativeOnResume()
-
-    /**
-     * Lifecycle: low memory warning
-     */
     external fun nativeOnLowMemory()
-
-    /**
-     * Get current statistics as JSON string
-     * @return JSON string with stats
-     */
     external fun nativeGetStats(): String
 }

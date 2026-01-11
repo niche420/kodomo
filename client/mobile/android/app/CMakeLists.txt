@@ -54,6 +54,8 @@ add_library(kodomo-android SHARED
         ${ANDROID_SOURCES}
 )
 
+target_compile_definitions(kodomo-android PRIVATE __ANDROID__)
+
 # Link libraries
 target_link_libraries(kodomo-android
         kodomo-shared

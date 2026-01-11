@@ -8,6 +8,7 @@ Renderer::Renderer(SDL_Window * window)
     , texture_width_(0)
     , texture_height_(0)
 {
+    std::cout << "Renderer constructor called, window=" << (void*)window << std::endl;
 }
 
 Renderer::~Renderer() {
@@ -20,16 +21,15 @@ Renderer::~Renderer() {
 }
 
 bool Renderer::initialize() {
-    // If window_ is null there's nothing we can do
+    // If window_ is null, we're on Android and SDL hasn't created the window yet
     if (!window_) {
-        std::cerr << "Renderer initialization failed: window is null\n";
-        return false;
+        std::cerr << "Renderer initialization: window is null (likely Android before SDL init)" << std::endl;
+        // This is OK on Android - SDL will create window later
+        return true;
     }
 
-    renderer_ = SDL_CreateRenderer(
-        window_,
-        NULL
-    );
+    std::cout << "Creating SDL_Renderer..." << std::endl;
+    renderer_ = SDL_CreateRenderer(window_, NULL);
 
     if (!renderer_) {
         std::cerr << "Renderer creation failed: " << SDL_GetError() << std::endl;

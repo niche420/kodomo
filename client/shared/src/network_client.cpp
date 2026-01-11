@@ -39,69 +39,49 @@ NetworkClient::~NetworkClient() {
 }
 
 bool NetworkClient::connect(const std::string& address) {
-    // Parse address (format: "host:port")
-    size_t colon_pos = address.find(':');
+    size_t colon_pos = address.find_last_of(':'); // last colon for port
     if (colon_pos != std::string::npos) {
         server_address_ = address.substr(0, colon_pos);
-        server_port_ = static_cast<uint16_t>(std::stoi(address.substr(colon_pos + 1)));
+        try {
+            server_port_ = static_cast<uint16_t>(std::stoi(address.substr(colon_pos + 1)));
+        } catch (...) {
+            return false; // invalid port
+        }
     } else {
         server_address_ = address;
     }
 
-    // Create UDP socket
-    socket_fd_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (socket_fd_ == INVALID_SOCKET) {
-        std::cerr << "Failed to create socket\n";
-        return false;
+    sockaddr_in server_addr{};
+    server_addr.sin_family = AF_INET;
+    if (inet_pton(AF_INET, server_address_.c_str(), &server_addr.sin_addr) <= 0) {
+        return false; // malformed IP
     }
+    server_addr.sin_port = htons(server_port_);
 
-    // Set non-blocking mode
+    socket_fd_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (socket_fd_ == INVALID_SOCKET) return false;
+
 #ifdef _WIN32
-    u_long mode = 1;
-    ioctlsocket(socket_fd_, FIONBIO, &mode);
+    u_long mode = 1; ioctlsocket(socket_fd_, FIONBIO, &mode);
 #else
     int flags = fcntl(socket_fd_, F_GETFL, 0);
     fcntl(socket_fd_, F_SETFL, flags | O_NONBLOCK);
 #endif
 
-    // Set socket options
-    int reuse = 1;
-    setsockopt(socket_fd_, SOL_SOCKET, SO_REUSEADDR,
-               reinterpret_cast<const char*>(&reuse), sizeof(reuse));
-
-    // Set receive buffer size
-    int buffer_size = 1024 * 1024; // 1MB
-    setsockopt(socket_fd_, SOL_SOCKET, SO_RCVBUF,
-               reinterpret_cast<const char*>(&buffer_size), sizeof(buffer_size));
-
-    // Setup server address
-    sockaddr_in server_addr{};
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(server_port_);
-
-    if (inet_pton(AF_INET, server_address_.c_str(), &server_addr.sin_addr) <= 0) {
-        std::cerr << "Invalid server address\n";
-        closesocket(socket_fd_);
-        socket_fd_ = INVALID_SOCKET;
-        return false;
-    }
-
-    // "Connect" UDP socket (sets default destination)
-    if (::connect(socket_fd_, reinterpret_cast<sockaddr*>(&server_addr),
-                  sizeof(server_addr)) == SOCKET_ERROR) {
-        std::cerr << "Failed to connect socket\n";
-        closesocket(socket_fd_);
-        socket_fd_ = INVALID_SOCKET;
-        return false;
+    if (::connect(socket_fd_, reinterpret_cast<sockaddr*>(&server_addr), sizeof(server_addr)) == SOCKET_ERROR) {
+#ifdef _WIN32
+        int err = WSAGetLastError();
+#else
+        int err = errno;
+#endif
+        if (err != EINPROGRESS && err != EAGAIN) {
+            closesocket(socket_fd_);
+            socket_fd_ = INVALID_SOCKET;
+            return false;
+        }
     }
 
     connected_ = true;
-    std::cout << "✓ Connected to " << server_address_ << ":" << server_port_ << "\n";
-
-    // Send initial hello packet
-    const char hello[] = "HELLO";
-    send(socket_fd_, hello, sizeof(hello), 0);
-
     return true;
 }
 

@@ -27,35 +27,72 @@ bool ClientCore::initialize(const ClientConfig& config, const PlatformCallbacks&
     config_ = config;
     callbacks_ = callbacks;
 
-    std::cout << "✓ Initializing Client Core" << std::endl;
+    std::cout << "✓ Initializing Client Core (mobile=" << config_.is_mobile << ")" << std::endl;
 
-    decoder_ = create_platform_decoder();
+    try {
+        std::cout << "Creating decoder..." << std::endl;
+        decoder_ = create_platform_decoder();
+        if (!decoder_) {
+            if (callbacks_.on_error) {
+                callbacks_.on_error("Failed to create decoder");
+            }
+            return false;
+        }
+        std::cout << "✓ Decoder created" << std::endl;
 
-    if (!decoder_ || !decoder_->initialize()) {
+        std::cout << "Initializing decoder..." << std::endl;
+        if (!decoder_->initialize()) {
+            if (callbacks_.on_error) {
+                callbacks_.on_error("Failed to initialize decoder");
+            }
+            return false;
+        }
+        std::cout << "✓ Decoder initialized" << std::endl;
+
+        // Create renderer (will handle null window gracefully on Android)
+        std::cout << "Creating renderer..." << std::endl;
+        renderer_ = std::make_unique<Renderer>(window);
+        std::cout << "✓ Renderer created" << std::endl;
+
+        // Only initialize renderer if we have a window
+        if (window != nullptr) {
+            std::cout << "Initializing renderer..." << std::endl;
+            if (!renderer_->initialize()) {
+                if (callbacks_.on_error) {
+                    callbacks_.on_error("Failed to initialize renderer");
+                }
+                return false;
+            }
+            std::cout << "✓ Renderer initialized" << std::endl;
+        } else {
+            std::cout << "Skipping renderer initialization (no window - Android will decode only)" << std::endl;
+        }
+
+        std::cout << "Creating input handler..." << std::endl;
+        input_handler_ = std::make_unique<InputHandler>(window);
+        std::cout << "✓ Input handler created" << std::endl;
+
+        std::cout << "Creating network client..." << std::endl;
+        network_ = std::make_unique<NetworkClient>();
+        std::cout << "✓ Network client created" << std::endl;
+
+        std::cout << "Creating connection manager..." << std::endl;
+        connection_manager_ = std::make_unique<ConnectionManager>();
+        std::cout << "✓ Connection manager created" << std::endl;
+
+        std::cout << "✓ Client Core initialized" << std::endl;
+        running_ = true;
+        last_stats_time_ = 0; // Will be set on first update
+
+        return true;
+
+    } catch (const std::exception& e) {
+        std::cerr << "Exception during initialization: " << e.what() << std::endl;
         if (callbacks_.on_error) {
-            callbacks_.on_error("Failed to initialize decoder");
+            callbacks_.on_error(std::string("Init exception: ") + e.what());
         }
         return false;
     }
-
-    // Create platform-agnostic components
-    renderer_ = std::make_unique<Renderer>(window);
-    input_handler_ = std::make_unique<InputHandler>(window);
-    network_ = std::make_unique<NetworkClient>();
-    connection_manager_ = std::make_unique<ConnectionManager>();
-
-    if (!renderer_->initialize()) {
-        if (callbacks_.on_error) {
-            callbacks_.on_error("Failed to initialize renderer");
-        }
-        return false;
-    }
-
-    std::cout << "✓ Client Core initialized" << std::endl;
-    running_ = true;
-    last_stats_time_ = SDL_GetTicks();
-
-    return true;
 }
 
 bool ClientCore::connect() {
@@ -69,24 +106,41 @@ bool ClientCore::connect() {
     if (config_.use_tailscale && !config_.tailscale_hostname.empty()) {
         std::cout << "Resolving Tailscale address: " << config_.tailscale_hostname << std::endl;
 
-        auto tailscale_addr = connection_manager_->resolve_tailscale_address(
-            config_.tailscale_hostname
-        );
+        try {
+            auto tailscale_addr = connection_manager_->resolve_tailscale_address(
+                config_.tailscale_hostname
+            );
 
-        if (tailscale_addr.empty()) {
+            if (tailscale_addr.empty()) {
+                std::cerr << "Failed to resolve Tailscale address" << std::endl;
+                if (callbacks_.on_error) {
+                    callbacks_.on_error("Failed to resolve Tailscale address: " + config_.tailscale_hostname);
+                }
+                return false;
+            }
+
+            server_address = tailscale_addr;
+            std::cout << "✓ Resolved to: " << server_address << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "Exception resolving Tailscale address: " << e.what() << std::endl;
             if (callbacks_.on_error) {
-                callbacks_.on_error("Failed to resolve Tailscale address");
+                callbacks_.on_error(std::string("Tailscale resolution error: ") + e.what());
             }
             return false;
         }
-
-        server_address = tailscale_addr;
-        std::cout << "✓ Resolved to: " << server_address << std::endl;
     }
 
-    if (!network_->connect(server_address)) {
+    try {
+        if (!network_->connect(server_address)) {
+            if (callbacks_.on_error) {
+                callbacks_.on_error("Failed to connect to server: " + server_address);
+            }
+            return false;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Exception connecting to server: " << e.what() << std::endl;
         if (callbacks_.on_error) {
-            callbacks_.on_error("Failed to connect to server");
+            callbacks_.on_error(std::string("Connection error: ") + e.what());
         }
         return false;
     }
@@ -113,7 +167,7 @@ bool ClientCore::update() {
 
     // Don't process if paused (mobile)
     if (paused_) {
-        SDL_Delay(16);
+        SDL_Delay(1);
         return true;
     }
 
@@ -121,8 +175,15 @@ bool ClientCore::update() {
     process_packets();
 
     // Update stats periodically
-    uint64_t current_time = SDL_GetTicks();
-    if (current_time - last_stats_time_ >= 1000) {
+    if (last_stats_time_ == 0) {
+        last_stats_time_ = SDL_GetPerformanceCounter();
+    }
+
+    uint64_t current_time = SDL_GetPerformanceCounter();
+    uint64_t frequency = SDL_GetPerformanceFrequency();
+    uint64_t elapsed_ms = ((current_time - last_stats_time_) * 1000) / frequency;
+
+    if (elapsed_ms >= 1000) {
         update_stats();
         last_stats_time_ = current_time;
     }

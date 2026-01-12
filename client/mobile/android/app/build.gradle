@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
@@ -30,6 +32,24 @@ android {
         }
     }
 
+    sourceSets {
+        main {
+            // Include SDL3's Java files from the submodule
+            java.srcDirs += '../../../external/SDL/android-project/app/src/main/java'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -49,20 +69,11 @@ android {
         }
     }
 
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = '17'
-    }
-
     buildFeatures {
         viewBinding = true
     }
 
-    ndkVersion = '29.0.14206865'
+    ndkVersion = '28.2.13676358'
     buildToolsVersion = '36.1.0'
 }
 

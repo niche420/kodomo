@@ -130,13 +130,27 @@ bool ClientCore::connect() {
         }
     }
 
+    std::cout << "Connecting to: " << server_address << std::endl;
+
     try {
+        if (!network_) {
+            std::cerr << "ERROR: network_ is null!" << std::endl;
+            if (callbacks_.on_error) {
+                callbacks_.on_error("Network client not initialized");
+            }
+            return false;
+        }
+
+        std::cout << "Calling network_->connect()..." << std::endl;
         if (!network_->connect(server_address)) {
+            std::cerr << "network_->connect() returned false" << std::endl;
             if (callbacks_.on_error) {
                 callbacks_.on_error("Failed to connect to server: " + server_address);
             }
             return false;
         }
+
+        std::cout << "network_->connect() succeeded!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Exception connecting to server: " << e.what() << std::endl;
         if (callbacks_.on_error) {
@@ -151,6 +165,7 @@ bool ClientCore::connect() {
         callbacks_.on_status_change("Connected to " + server_address);
     }
 
+    std::cout << "✓ Connection successful!" << std::endl;
     return true;
 }
 

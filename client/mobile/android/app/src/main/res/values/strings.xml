@@ -3,15 +3,13 @@
     <string name="app_name">Kodomo</string>
     <string name="connection_setup">Game Streaming Client</string>
     <string name="server_address">Server Address (IP:Port)</string>
-    <string name="tailscale_hostname">Tailscale Hostname</string>
-    <string name="use_tailscale">Use Tailscale</string>
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
     <string name="connecting">Connecting…</string>
     <string name="connected">Connected</string>
     <string name="disconnected">Disconnected</string>
     <string name="connection_failed">Connection Failed</string>
-    <string name="connection_help">Enter your server address or enable Tailscale to connect across networks.</string>
+    <string name="connection_help_simple">Enter your server\'s IP address and port.\nExample: 192.168.1.100:8080</string>
 
     <!-- Stats -->
     <string name="fps_label">FPS: %1$d</string>
@@ -23,14 +21,4 @@
     <string name="error_connect_failed">Failed to connect to server</string>
     <string name="error_network">Network error occurred</string>
     <string name="error_decoder">Video decoder error</string>
-
-    <!-- Settings -->
-    <string name="settings">Settings</string>
-    <string name="video_quality">Video Quality</string>
-    <string name="quality_auto">Auto</string>
-    <string name="quality_high">High</string>
-    <string name="quality_medium">Medium</string>
-    <string name="quality_low">Low</string>
-    <string name="show_stats">Show Statistics</string>
-    <string name="enable_touch_controls">Enable Touch Controls</string>
 </resources>

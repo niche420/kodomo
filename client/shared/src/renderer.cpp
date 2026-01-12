@@ -23,8 +23,8 @@ Renderer::~Renderer() {
 bool Renderer::initialize() {
     // If window_ is null, we're on Android and SDL hasn't created the window yet
     if (!window_) {
-        std::cerr << "Renderer initialization: window is null (likely Android before SDL init)" << std::endl;
-        // This is OK on Android - SDL will create window later
+        std::cerr << "Renderer initialization: window is null (will retry later)" << std::endl;
+        // Don't fail - just defer initialization
         return true;
     }
 
@@ -41,9 +41,19 @@ bool Renderer::initialize() {
 }
 
 void Renderer::render(const DecodedFrame& frame) {
-    // Defensive: ensure renderer exists
+    // Lazy initialization: if renderer doesn't exist yet, try to create it now
+    if (!renderer_ && window_) {
+        std::cout << "Lazy initializing renderer..." << std::endl;
+        renderer_ = SDL_CreateRenderer(window_, NULL);
+        if (!renderer_) {
+            std::cerr << "Lazy renderer creation failed: " << SDL_GetError() << std::endl;
+            return;
+        }
+        std::cout << "✓ Renderer lazy-initialized\n";
+    }
+
     if (!renderer_) {
-        std::cerr << "Render skipped: SDL_Renderer is null\n";
+        // Still no renderer - skip this frame
         return;
     }
 
@@ -69,6 +79,7 @@ void Renderer::render(const DecodedFrame& frame) {
 
         texture_width_ = frame.width;
         texture_height_ = frame.height;
+        std::cout << "Created texture: " << frame.width << "x" << frame.height << std::endl;
     }
 
     // Update texture with frame data
@@ -77,20 +88,13 @@ void Renderer::render(const DecodedFrame& frame) {
         return;
     }
 
-    // Defensive: check renderer again before rendering
-    if (!renderer_) {
-        std::cerr << "Render skipped: SDL_Renderer became null\n";
-        return;
-    }
-
     if (!SDL_RenderClear(renderer_)) {
         std::cerr << "SDL_RenderClear failed: " << SDL_GetError() << std::endl;
-        // still attempt to present texture (optional), but bail out to avoid crash
         return;
     }
 
     if (!SDL_RenderTexture(renderer_, texture_, nullptr, nullptr)) {
-        std::cerr << "SDL_RenderCopy failed: " << SDL_GetError() << std::endl;
+        std::cerr << "SDL_RenderTexture failed: " << SDL_GetError() << std::endl;
     }
 
     SDL_RenderPresent(renderer_);

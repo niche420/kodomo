@@ -105,61 +105,18 @@ std::optional<ConnectionManager::TailscaleStatus> ConnectionManager::get_tailsca
 
 std::string ConnectionManager::resolve_tailscale_address(const std::string& hostname) {
 #ifdef __ANDROID__
-    // If input is already an IP with optional port, return as-is
-    bool has_port = hostname.find(':') != std::string::npos;
-    sockaddr_in sa{};
-    if (inet_pton(AF_INET, hostname.c_str(), &sa.sin_addr) == 1) {
-        return hostname; // Valid IPv4, just use it
+    // On Android, just return the hostname with default port
+    // User should enter full address like "192.168.1.100:8080"
+    // or if it's a hostname, add the port
+    if (hostname.find(':') != std::string::npos) {
+        // Already has port
+        return hostname;
+    } else {
+        // Add default port
+        return hostname + ":8080";
     }
-
-    // Otherwise, try getaddrinfo to resolve hostname
-    struct addrinfo hints{}, *result = nullptr;
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_DGRAM;
-    hints.ai_flags = AI_ADDRCONFIG;
-
-    int ret = getaddrinfo(hostname.c_str(), "8080", &hints, &result);
-    if (ret != 0 || !result) {
-        return hostname + ":8080"; // Last resort, return with default port
-    }
-
-    char ip_str[INET_ADDRSTRLEN];
-    sockaddr_in* addr = (sockaddr_in*)result->ai_addr;
-    inet_ntop(AF_INET, &addr->sin_addr, ip_str, sizeof(ip_str));
-    freeaddrinfo(result);
-
-    return std::string(ip_str) + ":8080";
 #else
     // Desktop code unchanged
     return hostname;
 #endif
-}
-
-std::string ConnectionManager::parse_ip_from_status(
-    const std::string& status,
-    const std::string& hostname
-) {
-    std::istringstream stream(status);
-    std::string line;
-
-    // Parse tailscale status output
-    // Format: "IP              HOSTNAME        OS            RELAY   ONLINE"
-    // Example: "100.64.0.2      my-server      linux         -       active"
-
-    while (std::getline(stream, line)) {
-        // Look for hostname in line
-        if (line.find(hostname) != std::string::npos) {
-            // Extract IP (first token)
-            std::istringstream line_stream(line);
-            std::string ip;
-            line_stream >> ip;
-
-            // Validate IP format (simple check)
-            if (ip.find('.') != std::string::npos) {
-                return ip;
-            }
-        }
-    }
-
-    return "";
 }

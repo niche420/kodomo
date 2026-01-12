@@ -29,7 +29,7 @@ max_packet_size = 1400
 mode = { window = "Brave" }
 width = 1920
 height = 1080
-fps = 60
+fps = 1
 
 [input]
 keyboard_enabled = true

@@ -8,8 +8,6 @@ import androidx.appcompat.app.AppCompatActivity
 class MainActivity : AppCompatActivity() {
 
     private lateinit var serverAddressInput: EditText
-    private lateinit var tailscaleHostnameInput: EditText
-    private lateinit var useTailscaleCheckbox: CheckBox
     private lateinit var connectButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -17,15 +15,27 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         serverAddressInput = findViewById(R.id.server_address_input)
-        tailscaleHostnameInput = findViewById(R.id.tailscale_hostname_input)
-        useTailscaleCheckbox = findViewById(R.id.use_tailscale_checkbox)
         connectButton = findViewById(R.id.connect_button)
 
+        // Pre-fill with common default
+        serverAddressInput.setText("192.168.1.100:8080")
+
         connectButton.setOnClickListener {
+            val serverAddress = serverAddressInput.text.toString().trim()
+
+            if (serverAddress.isEmpty()) {
+                Toast.makeText(this, "Please enter server address", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // Validate format (basic check)
+            if (!serverAddress.contains(":")) {
+                Toast.makeText(this, "Format: IP:PORT (e.g., 192.168.1.100:8080)", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
             val intent = Intent(this, StreamingActivity::class.java).apply {
-                putExtra("server_address", serverAddressInput.text.toString())
-                putExtra("use_tailscale", useTailscaleCheckbox.isChecked)
-                putExtra("tailscale_hostname", tailscaleHostnameInput.text.toString())
+                putExtra("server_address", serverAddress)
             }
             startActivity(intent)
         }

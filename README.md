@@ -1,6 +1,10 @@
 # Kodomo
+Since u were a kid, u ever get on the toilet, and ur like, "man, why I gotta play
+shitty mobile games when I could be playing something intense like Yakuza 4?"
 
-A high-performance, low-latency game streaming system written in Rust with cross-platform support. Kodomo enables real-time screen capture, hardware-accelerated video encoding, and network streaming with adaptive quality optimization.
+yeah
+
+Basically, this is another game streaming platform, but for desktop and mobile.
 
 ## Features
 
@@ -52,6 +56,10 @@ A high-performance, low-latency game streaming system written in Rust with cross
 #### Server
 
 ```bash
+cd vcpkg
+./bootstrap-vcpkg
+./vcpkg install ffmpeg[nvcodec]:x64-windows
+
 # Build the streaming server
 cargo build --release -p kd-server
 
@@ -120,7 +128,7 @@ mouse_enabled = true
 gamepad_enabled = true
 ```
 
-See `crates/kd-server/example.toml` for full configuration options.
+See `server/crates/kd-server/config.toml` for full configuration options.
 
 ### Client Options
 
@@ -147,35 +155,6 @@ cargo run --release -p kd-server -- --config config.toml
 kodomo-client --server 127.0.0.1:8080 --fullscreen
 ```
 
-3. (Optional) Run ML optimizer:
-```bash
-python -m optimizer.optimizer --server ws://localhost:9090/metrics
-```
-
-### Development
-
-```bash
-# Run tests
-cargo test --workspace
-
-# Check code
-cargo clippy --workspace
-
-# Format code
-cargo fmt --workspace
-
-# Build all crates
-cargo build --workspace
-```
-
-## Performance
-
-- **Latency**: <20ms end-to-end on local network
-- **Encoding**: Hardware acceleration via NVENC (NVIDIA) / VideoToolbox (Apple)
-- **Frame Rate**: Up to 120 FPS (hardware dependent)
-- **Resolution**: Supports up to 4K streaming
-- **Bitrate**: Adaptive 5-50 Mbps based on network conditions
-
 ## License
 
 MIT License - See LICENSE file for details
@@ -186,9 +165,8 @@ idgaf
 
 ## Roadmap
 
-- [ ] Audio streaming support
-- [ ] WebRTC transport optimization
-- [ ] Multiple monitor support
-- [ ] Web-based client
-- [ ] Hardware decoding on client
-- [ ] Mobile client (iOS/Android)
+- As you can see, very Windows-biased, but aiming to get linux and macOS up soon
+- Doing Android first, then iOS
+- WebRTC transport optimization
+- Multiple monitor support
+- Web-based client

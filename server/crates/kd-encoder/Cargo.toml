@@ -1,3 +1,5 @@
+# crates/kd-encoder/Cargo.toml
+
 [package]
 name = "kd-encoder"
 version.workspace = true
@@ -12,15 +14,13 @@ serde.workspace = true
 openh264 = { version = "0.9.0", optional = true }
 rayon = "1.11.0"
 
-[features]
-default = ["openh264"]
-ffmpeg = ["dep:ffmpeg-next"]
-x264 = []
-
-# Optional FFmpeg support (software fallback)
+# FFmpeg with hardware acceleration support (recommended)
 [dependencies.ffmpeg-next]
 version = "8.0.0"
 optional = true
+default-features = false
+features = ["codec", "format"]
+
 
 # Platform-specific hardware encoders
 [target.'cfg(windows)'.dependencies]
@@ -28,3 +28,8 @@ windows = { version = "0.62.2", features = [
     "Win32_Graphics_Direct3D11",
     "Win32_System_Com",
 ], optional = true }
+
+[features]
+default = ["ffmpeg"]
+ffmpeg = ["dep:ffmpeg-next"]
+openh264 = ["dep:openh264"]

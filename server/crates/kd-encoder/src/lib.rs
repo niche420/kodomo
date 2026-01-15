@@ -1,19 +1,17 @@
+// crates/kd-encoder/src/lib.rs
+
 use std::time::Instant;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod software;
+
 #[cfg(feature = "ffmpeg")]
-pub mod ffmpeg_encoder;
+pub mod ffmpeg;
+
 #[cfg(feature = "openh264")]
 pub mod openh264_encoder;
-
-#[cfg(all(target_os = "windows", feature = "nvenc"))]
-pub mod nvenc;
-
-#[cfg(all(target_os = "macos", feature = "videotoolbox"))]
-pub mod videotoolbox;
 
 pub type Result<T> = std::result::Result<T, EncoderError>;
 
@@ -35,7 +33,7 @@ pub enum EncoderError {
     HardwareUnavailable,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum VideoCodec {
     H264,
     H265,
@@ -143,29 +141,43 @@ impl EncoderFactory {
     pub fn create(config: EncoderConfig) -> Result<Box<dyn VideoEncoder>> {
         tracing::info!("Creating encoder: {:?}, hardware: {}", config.codec, config.use_hardware);
 
-        // Try hardware encoders first if requested
-        if config.use_hardware {
-            #[cfg(all(target_os = "windows", feature = "nvenc"))]
-            if let Ok(encoder) = nvenc::NvencEncoder::new(config.clone()) {
-                tracing::info!("Using NVENC hardware encoder");
-                return Ok(Box::new(encoder));
+        // Try FFmpeg first (supports both hardware NVENC and software encoding)
+        #[cfg(feature = "ffmpeg")]
+        {
+            if config.use_hardware && ffmpeg::FfmpegEncoder::is_nvenc_available() {
+                match ffmpeg::FfmpegEncoder::new(config.clone()) {
+                    Ok(encoder) => {
+                        tracing::info!("✓ Using FFmpeg with NVENC hardware acceleration");
+                        return Ok(Box::new(encoder));
+                    }
+                    Err(e) => {
+                        tracing::warn!("FFmpeg NVENC init failed: {}, trying software", e);
+                    }
+                }
             }
 
-            #[cfg(all(target_os = "macos", feature = "videotoolbox"))]
-            if let Ok(encoder) = videotoolbox::VideoToolboxEncoder::new(config.clone()) {
-                tracing::info!("Using VideoToolbox hardware encoder");
-                return Ok(Box::new(encoder));
+            // Try FFmpeg software encoding
+            if ffmpeg::FfmpegEncoder::is_available() {
+                match ffmpeg::FfmpegEncoder::new(config.clone()) {
+                    Ok(encoder) => {
+                        tracing::info!("✓ Using FFmpeg software encoder");
+                        return Ok(Box::new(encoder));
+                    }
+                    Err(e) => {
+                        tracing::warn!("FFmpeg init failed: {}", e);
+                    }
+                }
             }
-
-            tracing::warn!("Hardware encoder not available, falling back to software");
         }
 
         // Try OpenH264 if available
         #[cfg(feature = "openh264")]
-        if openh264_encoder::OpenH264Encoder::is_available() {
-            if let Ok(encoder) = openh264_encoder::OpenH264Encoder::new(config.clone()) {
-                tracing::info!("Using OpenH264 software encoder");
-                return Ok(Box::new(encoder));
+        {
+            if openh264_encoder::OpenH264Encoder::is_available() {
+                if let Ok(encoder) = openh264_encoder::OpenH264Encoder::new(config.clone()) {
+                    tracing::info!("✓ Using OpenH264 software encoder");
+                    return Ok(Box::new(encoder));
+                }
             }
         }
 
@@ -175,15 +187,26 @@ impl EncoderFactory {
     }
 
     pub fn list_available_encoders() -> Vec<String> {
-        let mut encoders = vec!["Software (x264)".to_string()];
+        let mut encoders = vec![];
 
-        #[cfg(all(target_os = "windows", feature = "nvenc"))]
-        if nvenc::NvencEncoder::is_available() {
-            encoders.push("NVENC (NVIDIA)".to_string());
+        #[cfg(feature = "ffmpeg")]
+        {
+            if ffmpeg::FfmpegEncoder::is_nvenc_available() {
+                encoders.push("FFmpeg h264_nvenc (NVIDIA Hardware)".to_string());
+            }
+            if ffmpeg::FfmpegEncoder::is_available() {
+                encoders.push("FFmpeg libx264 (Software)".to_string());
+            }
         }
 
-        #[cfg(all(target_os = "macos", feature = "videotoolbox"))]
-        encoders.push("VideoToolbox (Apple)".to_string());
+        #[cfg(feature = "openh264")]
+        {
+            if openh264_encoder::OpenH264Encoder::is_available() {
+                encoders.push("OpenH264 (Software)".to_string());
+            }
+        }
+
+        encoders.push("x264 Stub (Software Fallback)".to_string());
 
         encoders
     }

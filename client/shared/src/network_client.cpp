@@ -7,8 +7,9 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "NetworkClient", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "NetworkClient", __VA_ARGS__)
 #else
-#define LOGI(...) std::cout << __VA_ARGS__ << std::endl
-#define LOGE(...) std::cerr << __VA_ARGS__ << std::endl
+#include <cstdio>
+#define LOGI(...) { std::printf(__VA_ARGS__); std::printf("\n"); }
+#define LOGE(...) { std::fprintf(stderr, __VA_ARGS__); std::fprintf(stderr, "\n"); }
 #endif
 
 #ifdef _WIN32
@@ -49,11 +50,6 @@ NetworkClient::~NetworkClient() {
 }
 
 bool NetworkClient::connect(const std::string& address) {
-    LOGI("╔════════════════════════════════════════╗");
-    LOGI("║   NetworkClient::connect START         ║");
-    LOGI("╚════════════════════════════════════════╝");
-    LOGI("Input address: %s", address.c_str());
-
     // Parse address - format should be "IP:PORT"
     size_t colon_pos = address.find_last_of(':');
     if (colon_pos == std::string::npos) {
@@ -160,10 +156,7 @@ bool NetworkClient::connect(const std::string& address) {
 
     connected_ = true;
 
-    LOGI("╔════════════════════════════════════════╗");
-    LOGI("║   NetworkClient::connect SUCCESS       ║");
-    LOGI("║   Connected to %s:%u", server_address_.c_str(), server_port_);
-    LOGI("╚════════════════════════════════════════╝");
+    LOGI("Connected to %s:%u", server_address_.c_str(), server_port_);
 
     return true;
 }

@@ -1,5 +1,5 @@
 use super::*;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, warn, error};
 
 #[cfg(feature = "ffmpeg")]
 use ffmpeg_next as ffmpeg;
@@ -52,17 +52,33 @@ impl FfmpegEncoder {
         false
     }
 
-    fn preset_to_ffmpeg(&self) -> &str {
-        match self.config.preset {
-            EncoderPreset::UltraFast => "ultrafast",
-            EncoderPreset::SuperFast => "superfast",
-            EncoderPreset::VeryFast => "veryfast",
-            EncoderPreset::Faster => "faster",
-            EncoderPreset::Fast => "fast",
-            EncoderPreset::Medium => "medium",
-            EncoderPreset::Slow => "slow",
-            EncoderPreset::Slower => "slower",
-            EncoderPreset::VerySlow => "veryslow",
+    fn preset_to_ffmpeg(&self, encoder_name: &str) -> &str {
+        if encoder_name.contains("nvenc") {
+            // NVENC presets (p1-p7, higher = slower/better quality)
+            match self.config.preset {
+                EncoderPreset::UltraFast => "p1",
+                EncoderPreset::SuperFast => "p2",
+                EncoderPreset::VeryFast => "p3",
+                EncoderPreset::Faster => "p4",
+                EncoderPreset::Fast => "p4",
+                EncoderPreset::Medium => "p5",
+                EncoderPreset::Slow => "p6",
+                EncoderPreset::Slower => "p7",
+                EncoderPreset::VerySlow => "p7",
+            }
+        } else {
+            // x264/x265 presets
+            match self.config.preset {
+                EncoderPreset::UltraFast => "ultrafast",
+                EncoderPreset::SuperFast => "superfast",
+                EncoderPreset::VeryFast => "veryfast",
+                EncoderPreset::Faster => "faster",
+                EncoderPreset::Fast => "fast",
+                EncoderPreset::Medium => "medium",
+                EncoderPreset::Slow => "slow",
+                EncoderPreset::Slower => "slower",
+                EncoderPreset::VerySlow => "veryslow",
+            }
         }
     }
 
@@ -128,6 +144,7 @@ impl VideoEncoder for FfmpegEncoder {
 
             // Select encoder (hardware or software)
             let encoder_name = select_encoder_name(&self.config)?;
+            info!("Selected encoder: {}", encoder_name);
 
             // Initialize FFmpeg
             ffmpeg::init()
@@ -135,6 +152,8 @@ impl VideoEncoder for FfmpegEncoder {
 
             let codec = ffmpeg::encoder::find_by_name(encoder_name)
                 .ok_or_else(|| EncoderError::InitFailed(format!("Codec '{}' not found", encoder_name)))?;
+
+            info!("Found codec: {}", codec.name());
 
             // Create encoder context
             let mut context = ffmpeg::codec::context::Context::new_with_codec(codec)
@@ -155,15 +174,15 @@ impl VideoEncoder for FfmpegEncoder {
             context.set_gop(self.config.keyframe_interval);
 
             // Set preset
-            let preset = self.preset_to_ffmpeg();
+            let preset = self.preset_to_ffmpeg(encoder_name);
+            info!("Using preset: {}", preset);
 
             // Set encoder-specific options
             let mut opts = ffmpeg::Dictionary::new();
             opts.set("preset", preset);
 
-            let encoder_name = select_encoder_name(&self.config)?;  // Grab it here for opts
-
             if encoder_name.contains("nvenc") {
+                info!("Configuring NVENC for low latency");
                 // NVENC specific settings for low latency
                 opts.set("tune", "ll"); // low latency
                 opts.set("rc", "cbr"); // constant bitrate
@@ -171,13 +190,17 @@ impl VideoEncoder for FfmpegEncoder {
                 opts.set("delay", "0"); // no frame delay
                 opts.set("zerolatency", "1");
                 opts.set("forced-idr", "1");
+                opts.set("gpu", "0"); // Use GPU 0
+
+                // CRITICAL: Verify GPU is available
+                info!("NVENC will use GPU 0");
             } else if encoder_name.contains("x264") {
-                // x264 specific settings (skipped CRF to play nice with bitrate)
+                info!("Configuring x264 for low latency");
+                // x264 specific settings
                 opts.set("tune", "zerolatency");
-                // opts.set("crf", "23"); // Commented—conflicts with set_bit_rate; use if ditching CBR
             }
 
-            // NOW the money shot: Open it with opts to get the Opened encoder
+            // Open encoder with options
             let opened_encoder = context
                 .open_with(opts)
                 .map_err(|e| EncoderError::InitFailed(format!("Failed to open encoder: {}", e)))?;
@@ -185,7 +208,11 @@ impl VideoEncoder for FfmpegEncoder {
             self.encoder = Some(opened_encoder);
             self.initialized = true;
 
-            info!("✓ FFmpeg encoder initialized successfully with {}", encoder_name);
+            info!("✅ FFmpeg encoder initialized successfully with {}", encoder_name);
+            info!("   Resolution: {}x{}", self.config.width, self.config.height);
+            info!("   FPS: {}", self.config.fps);
+            info!("   Bitrate: {} kbps", self.config.bitrate_kbps);
+
             Ok(())
         }
 
@@ -241,7 +268,7 @@ impl VideoEncoder for FfmpegEncoder {
                     let encode_time = encode_start.elapsed();
 
                     if encode_time.as_millis() > 16 {
-                        warn!("Encode took {}ms (target: <16ms for 60fps)", encode_time.as_millis());
+                        warn!("Encoding took {}ms (target: <16ms for 60fps)", encode_time.as_millis());
                     } else if self.frame_count % 60 == 0 {
                         debug!("Encoded frame {} in {}ms", self.frame_count, encode_time.as_millis());
                     }
@@ -349,35 +376,44 @@ impl Drop for FfmpegEncoder {
 }
 
 fn select_encoder_name(config: &EncoderConfig) -> Result<&str> {
-    // Try hardware encoders first if requested
+    // CRITICAL: Check hardware first, with detailed logging
     if config.use_hardware {
         match config.codec {
             VideoCodec::H264 => {
                 if FfmpegEncoder::is_nvenc_available() {
-                    info!("Using h264_nvenc (NVIDIA hardware encoder)");
+                    info!("✅ NVENC H.264 encoder available - using hardware acceleration");
                     return Ok("h264_nvenc");
+                } else {
+                    error!("❌ NVENC not available! Reasons could be:");
+                    error!("   - No NVIDIA GPU present");
+                    error!("   - NVIDIA drivers not installed");
+                    error!("   - FFmpeg not compiled with --enable-nvenc");
+                    error!("   - GPU is too old (needs Kepler or newer)");
+                    warn!("Falling back to SOFTWARE encoding (will be VERY slow)");
                 }
-                warn!("NVENC not available, falling back to software");
             }
             VideoCodec::H265 => {
                 if FfmpegEncoder::is_nvenc_available() {
-                    info!("Using hevc_nvenc (NVIDIA hardware encoder)");
+                    info!("✅ Using hevc_nvenc (NVIDIA hardware encoder)");
                     return Ok("hevc_nvenc");
                 }
-                warn!("NVENC not available, falling back to software");
+                warn!("NVENC not available for H.265, falling back to software");
             }
             _ => {}
         }
+    } else {
+        info!("Hardware encoding disabled in config - using software");
     }
 
     // Software fallback
     match config.codec {
         VideoCodec::H264 => {
-            info!("Using libx264 (software encoder)");
+            warn!("⚠️  Using libx264 SOFTWARE encoder - expect 200ms+ per frame!");
+            warn!("⚠️  This is 100x slower than NVENC hardware encoding!");
             Ok("libx264")
         }
         VideoCodec::H265 => {
-            info!("Using libx265 (software encoder)");
+            warn!("⚠️  Using libx265 SOFTWARE encoder - will be extremely slow!");
             Ok("libx265")
         }
         _ => Err(EncoderError::UnsupportedCodec(config.codec)),

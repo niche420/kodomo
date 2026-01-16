@@ -14,8 +14,8 @@ use kd_input::{InputHandler, InputEvent, InputConfig};
 use bytes::Bytes;
 use tracing_subscriber::util::SubscriberInitExt;
 
-const FRAME_CHANNEL_SIZE: usize = 8;
-const PACKET_CHANNEL_SIZE: usize = 32;
+const FRAME_CHANNEL_SIZE: usize = 240; // 2 seconds at 60fps
+const PACKET_CHANNEL_SIZE: usize = 240; // 4 seconds worth
 
 pub struct StreamingServer {
     config: Config,
@@ -36,30 +36,74 @@ struct EncodedPacketWithMeta {
     frame_number: u64,
 }
 
-struct FrameCaptureHandler {
+// OPTIMIZED: Smart frame handler with better dropping strategy
+struct SmartFrameHandler {
     frame_tx: mpsc::Sender<CapturedFrame>,
     frame_count: Arc<AtomicU64>,
+    dropped_count: Arc<AtomicU64>,
+    last_log: Arc<Mutex<std::time::Instant>>,
 }
 
-impl kd_capture::CaptureHandler for FrameCaptureHandler {
-    fn on_frame_arrived(&mut self, frame: kd_capture::CapturedFrame) -> kd_capture::Result<()> {
+impl SmartFrameHandler {
+    fn new(frame_tx: mpsc::Sender<CapturedFrame>) -> Self {
+        Self {
+            frame_tx,
+            frame_count: Arc::new(AtomicU64::new(0)),
+            dropped_count: Arc::new(AtomicU64::new(0)),
+            last_log: Arc::new(Mutex::new(std::time::Instant::now())),
+        }
+    }
+}
+
+impl kd_capture::CaptureHandler for SmartFrameHandler {
+    fn on_frame_arrived(&mut self, frame: CapturedFrame) -> kd_capture::Result<()> {
         let count = self.frame_count.fetch_add(1, Ordering::Relaxed) + 1;
 
-        // Non-blocking send
-        if self.frame_tx.try_send(frame).is_err() {
-            // Channel full, drop frame
-            tracing::warn!("Frame dropped - encoder too slow");
-        }
+        // Smart dropping strategy
+        match self.frame_tx.try_send(frame) {
+            Ok(_) => {
+                // Log periodically
+                if let Ok(mut last) = self.last_log.try_lock() {
+                    if last.elapsed().as_secs() >= 5 {
+                        let dropped = self.dropped_count.load(Ordering::Relaxed);
+                        if dropped > 0 {
+                            info!("Captured {} frames, dropped {} total", count, dropped);
+                        } else {
+                            debug!("Captured {} frames, no drops", count);
+                        }
+                        *last = std::time::Instant::now();
+                    }
+                }
+            }
+            Err(mpsc::error::TrySendError::Full(frame)) => {
+                let dropped = self.dropped_count.fetch_add(1, Ordering::Relaxed) + 1;
 
-        if count % 60 == 0 {
-            tracing::debug!("Captured {} frames", count);
+                // Only log every 60 drops to avoid spam
+                if dropped % 60 == 0 {
+                    warn!("Frame buffer full - dropped {} total frames (encoder overloaded)", dropped);
+                }
+
+                // Recovery: every 60 dropped frames, force-send to prevent starvation
+                if dropped % 60 == 0 {
+                    if let Err(e) = self.frame_tx.blocking_send(frame) {
+                        error!("Failed to force-send recovery frame: {}", e);
+                    }
+                }
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                error!("Frame channel closed - stopping capture");
+                return Err(kd_capture::CaptureError::CaptureFailed(
+                    "Channel closed".into()
+                ));
+            }
         }
 
         Ok(())
     }
 
     fn on_capture_closed(&mut self) {
-        tracing::info!("Capture closed by system");
+        info!("Capture closed - total dropped: {}",
+              self.dropped_count.load(Ordering::Relaxed));
     }
 }
 
@@ -114,10 +158,10 @@ impl StreamingServer {
           self.config.video.height,
           self.config.video.fps);
 
-        let handler = Arc::new(Mutex::new(FrameCaptureHandler {
-            frame_tx: self.frame_tx.clone(),
-            frame_count: Arc::new(AtomicU64::new(0)),
-        }));
+        // OPTIMIZED: Use smart handler
+        let handler = Arc::new(Mutex::new(SmartFrameHandler::new(
+            self.frame_tx.clone(),
+        )));
 
         // Create capture manager for stopping
         let capture = Arc::new(Mutex::new(kd_capture::ScreenCaptureManager::new()?));
@@ -168,30 +212,46 @@ impl StreamingServer {
             use_hardware: self.config.video.hw_accel,
         };
 
-        let mut encoder = EncoderFactory::create(encoder_config)
-            .map_err(|e| anyhow::anyhow!("Encoder init failed: {}", e))?;
+        let encoder = Arc::new(Mutex::new(
+            EncoderFactory::create(encoder_config.clone())
+                .map_err(|e| anyhow::anyhow!("Encoder init failed: {}", e))?
+        ));
 
-        encoder.init(encoder.get_config().clone())
-            .map_err(|e| anyhow::anyhow!("Encoder config failed: {}", e))?;
+        {
+            let mut enc = encoder.lock().unwrap();
+            enc.init(encoder_config.clone())
+                .map_err(|e| anyhow::anyhow!("Encoder config failed: {}", e))?;
+        }
 
         info!("✓ Video encoder initialized: {:?}, HW accel: {}",
               self.config.video.codec,
               self.config.video.hw_accel);
 
-        // Spawn encoder task
+        // OPTIMIZED: Spawn encoder task with blocking support
         let mut frame_rx = self.frame_rx.take().unwrap();
         let packet_tx = self.packet_tx.clone();
         let metrics = self.metrics.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
 
         tokio::spawn(async move {
-            info!("Encoder loop started");
+            info!("Encoder loop started (OPTIMIZED)");
             let mut frame_number = 0u64;
+            let mut last_perf_log = std::time::Instant::now();
+            let mut frames_since_perf = 0u64;
 
             loop {
                 tokio::select! {
                     Some(captured_frame) = frame_rx.recv() => {
                         frame_number += 1;
+                        frames_since_perf += 1;
+
+                        // Log encoding performance every 5 seconds
+                        if last_perf_log.elapsed().as_secs() >= 5 {
+                            let encode_fps = frames_since_perf as f64 / last_perf_log.elapsed().as_secs_f64();
+                            info!("Encoder processing at {:.1} fps", encode_fps);
+                            last_perf_log = std::time::Instant::now();
+                            frames_since_perf = 0;
+                        }
 
                         // Convert to RawFrame
                         let raw_frame = RawFrame {
@@ -208,39 +268,53 @@ impl StreamingServer {
                             timestamp: captured_frame.timestamp,
                         };
 
-                        // Encode frame
-                        match encoder.encode(&raw_frame) {
-                            Ok(Some(packet)) => {
-                                // Update metrics
-                                {
-                                    let mut m = metrics.write().await;
-                                    m.frames_encoded += 1;
-                                    m.bytes_encoded += packet.data.len() as u64;
+                        // OPTIMIZED: Offload encoding to blocking thread pool
+                        let encoder_clone = encoder.clone();
+                        let packet_tx_clone = packet_tx.clone();
+                        let metrics_clone = metrics.clone();
+
+                        tokio::task::spawn_blocking(move || {
+                            let encode_start = std::time::Instant::now();
+
+                            let mut enc = encoder_clone.lock().unwrap();
+                            match enc.encode(&raw_frame) {
+                                Ok(Some(packet)) => {
+                                    let encode_time = encode_start.elapsed();
+
+                                    // Warn if encoding is too slow (>16ms for 60fps)
+                                    if encode_time.as_millis() > 16 {
+                                        warn!("Encoding took {}ms (target: <16ms for 60fps)",
+                                              encode_time.as_millis());
+                                    }
+
+                                    // Update metrics
+                                    {
+                                        let mut m = metrics_clone.blocking_write();
+                                        m.frames_encoded += 1;
+                                        m.bytes_encoded += packet.data.len() as u64;
+                                    }
+
+                                    // Send to network
+                                    let meta = EncodedPacketWithMeta {
+                                        data: packet.data,
+                                        is_keyframe: packet.is_keyframe,
+                                        frame_number,
+                                    };
+
+                                    let _ = packet_tx_clone.blocking_send(meta);
+
+                                    if frame_number % 300 == 0 {
+                                        debug!("Encoded {} frames ({}ms)", frame_number, encode_time.as_millis());
+                                    }
                                 }
-
-                                // Send to network
-                                let meta = EncodedPacketWithMeta {
-                                    data: packet.data,
-                                    is_keyframe: packet.is_keyframe,
-                                    frame_number,
-                                };
-
-                                if let Err(e) = packet_tx.send(meta).await {
-                                    error!("Failed to send packet to network: {}", e);
-                                    break;
+                                Ok(None) => {
+                                    // Encoder needs more data - normal
                                 }
-
-                                if frame_number % 60 == 0 {
-                                    debug!("Encoded {} frames", frame_number);
+                                Err(e) => {
+                                    error!("Encoding error on frame {}: {}", frame_number, e);
                                 }
                             }
-                            Ok(None) => {
-                                // Encoder needs more data
-                            }
-                            Err(e) => {
-                                error!("Encoding error: {}", e);
-                            }
-                        }
+                        });
                     }
                     _ = shutdown_rx.recv() => {
                         info!("Encoder loop shutting down");
@@ -250,8 +324,11 @@ impl StreamingServer {
             }
 
             // Flush encoder
-            if let Ok(packets) = encoder.flush() {
-                info!("Flushed {} remaining packets", packets.len());
+            {
+                let mut enc = encoder.lock().unwrap();
+                if let Ok(packets) = enc.flush() {
+                    info!("Flushed {} remaining packets", packets.len());
+                }
             }
 
             info!("Encoder loop stopped");
@@ -353,7 +430,7 @@ impl StreamingServer {
                                 m.packets_sent += 1;
                                 m.bytes_sent += packet.payload.len() as u64;
 
-                                if sequence % 60 == 0 {
+                                if sequence % 300 == 0 {
                                     debug!("Sent {} packets", sequence);
                                 }
                             }
@@ -427,21 +504,23 @@ impl StreamingServer {
             let mut last_captured = 0u64;
             let mut last_encoded = 0u64;
             let mut last_sent = 0u64;
+            let mut last_bytes = 0u64;
 
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
                         let m = metrics.read().await;
 
-                        let captured_delta = m.frames_captured - last_captured;
-                        let encoded_delta = m.frames_encoded - last_encoded;
-                        let sent_delta = m.packets_sent - last_sent;
+                        let captured_delta = m.frames_captured.saturating_sub(last_captured);
+                        let encoded_delta = m.frames_encoded.saturating_sub(last_encoded);
+                        let sent_delta = m.packets_sent.saturating_sub(last_sent);
+                        let bytes_delta = m.bytes_sent.saturating_sub(last_bytes);
 
                         let capture_fps = captured_delta as f64 / 5.0;
                         let encode_fps = encoded_delta as f64 / 5.0;
                         let send_fps = sent_delta as f64 / 5.0;
 
-                        let bitrate_kbps = (m.bytes_sent - last_sent as u64) * 8 / 5 / 1000;
+                        let bitrate_kbps = bytes_delta * 8 / 5 / 1000;
 
                         info!("📊 Metrics: capture={:.1} fps, encode={:.1} fps, send={:.1} fps, bitrate={} kbps",
                               capture_fps, encode_fps, send_fps, bitrate_kbps);
@@ -449,6 +528,7 @@ impl StreamingServer {
                         last_captured = m.frames_captured;
                         last_encoded = m.frames_encoded;
                         last_sent = m.packets_sent;
+                        last_bytes = m.bytes_sent;
                     }
                     _ = shutdown_rx.recv() => {
                         break;

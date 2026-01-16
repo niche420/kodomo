@@ -35,9 +35,7 @@ fn main() {
 
     for dll in dlls.iter() {
         let src = ffmpeg_dir.join("bin").join(dll);
-        println!("cargo:warning=Looking in {}", src.display());
         let dst = target_dir.join(dll);
-        println!("cargo:warning=Putting in {}", dst.display());
         if let Err(e) = fs::copy(&src, &dst) {
             println!("cargo:warning=Failed to copy {}: {}", dll, e);
         }

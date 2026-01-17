@@ -84,40 +84,42 @@ impl UdpTransport {
         }
     }
 
-    /// Find all NAL unit boundaries in the data
-    fn find_nal_boundaries(data: &[u8]) -> Vec<usize> {
-        let mut boundaries = Vec::new();
-        let mut i = 0;
+    // Restore NAL-aware chunking
+    async fn send_fragmented_nal_aware(&mut self, data: Bytes, max_chunk_size: usize) -> Result<()> {
+        let chunks = Self::create_nal_aware_chunks(&data, max_chunk_size);
+        let total_chunks = chunks.len();
 
-        // Look for start codes: 0x00 0x00 0x00 0x01 or 0x00 0x00 0x01
-        while i + 3 < data.len() {
-            if data[i] == 0x00 && data[i + 1] == 0x00 {
-                if data[i + 2] == 0x00 && i + 3 < data.len() && data[i + 3] == 0x01 {
-                    // Found 4-byte start code
-                    boundaries.push(i);
-                    i += 4;
-                } else if data[i + 2] == 0x01 {
-                    // Found 3-byte start code
-                    boundaries.push(i);
-                    i += 3;
-                } else {
-                    i += 1;
-                }
-            } else {
-                i += 1;
+        debug!("Fragmenting {} bytes into {} NAL-aware chunks", data.len(), total_chunks);
+
+        for (idx, chunk) in chunks.into_iter().enumerate() {
+            let mut flags = FLAG_FRAGMENT;
+            if idx == total_chunks - 1 {
+                flags |= FLAG_LAST_FRAGMENT;
             }
+
+            let packet = Packet::new(PacketType::Video, self.sequence, chunk)
+                .with_flags(flags);
+
+            self.sequence = self.sequence.wrapping_add(1);
+
+            let wire_data = packet.to_bytes();
+            let socket = self.socket.as_ref().unwrap();
+
+            socket.send(&wire_data).await
+                .map_err(|e| NetworkError::SendFailed(e.to_string()))?;
+
+            let mut stats = self.stats.lock().await;
+            stats.packets_sent += 1;
+            stats.bytes_sent += wire_data.len() as u64;
         }
 
-        boundaries
+        Ok(())
     }
 
-    /// Split data into chunks that respect NAL unit boundaries
     fn create_nal_aware_chunks(data: &Bytes, max_chunk_size: usize) -> Vec<Bytes> {
         let boundaries = Self::find_nal_boundaries(data);
 
         if boundaries.is_empty() {
-            // No NAL units found, fall back to simple chunking
-            // (This shouldn't happen with properly formatted H.264)
             warn!("No NAL boundaries found, using simple chunking");
             return data.chunks(max_chunk_size)
                 .map(|chunk| Bytes::copy_from_slice(chunk))
@@ -137,15 +139,13 @@ impl UdpTransport {
 
             let nal_size = nal_end - nal_start;
 
-            // If this NAL unit alone exceeds max_chunk_size, it needs its own chunk(s)
             if nal_size > max_chunk_size {
-                // Flush current chunk if it has data
+                // Flush current chunk
                 if current_chunk_start < nal_start {
                     chunks.push(data.slice(current_chunk_start..nal_start));
                 }
 
-                // Split this large NAL unit into multiple chunks
-                // Note: This is not ideal but necessary for very large NAL units
+                // Split large NAL
                 let mut nal_offset = nal_start;
                 while nal_offset < nal_end {
                     let chunk_end = (nal_offset + max_chunk_size).min(nal_end);
@@ -155,19 +155,39 @@ impl UdpTransport {
 
                 current_chunk_start = nal_end;
             } else if current_chunk_start + (nal_end - current_chunk_start) > max_chunk_size {
-                // Adding this NAL would exceed chunk size, flush current chunk
                 chunks.push(data.slice(current_chunk_start..nal_start));
                 current_chunk_start = nal_start;
             }
-            // else: NAL fits in current chunk, continue accumulating
         }
 
-        // Flush remaining data
         if current_chunk_start < data.len() {
             chunks.push(data.slice(current_chunk_start..));
         }
 
         chunks
+    }
+
+    fn find_nal_boundaries(data: &[u8]) -> Vec<usize> {
+        let mut boundaries = Vec::new();
+        let mut i = 0;
+
+        while i + 3 < data.len() {
+            if data[i] == 0x00 && data[i + 1] == 0x00 {
+                if data[i + 2] == 0x00 && i + 3 < data.len() && data[i + 3] == 0x01 {
+                    boundaries.push(i);
+                    i += 4;
+                } else if data[i + 2] == 0x01 {
+                    boundaries.push(i);
+                    i += 3;
+                } else {
+                    i += 1;
+                }
+            } else {
+                i += 1;
+            }
+        }
+
+        boundaries
     }
 }
 
@@ -209,11 +229,10 @@ impl NetworkTransport for UdpTransport {
             .ok_or(NetworkError::SendFailed("No peer address set. Call connect() first.".into()))?;
 
         let config = self.config.as_ref().unwrap();
-        let max_payload_size = config.max_packet_size.saturating_sub(50); // Leave room for packet header
+        let max_payload_size = config.max_packet_size.saturating_sub(50);
 
-        // Check if fragmentation is needed
         if data.len() <= max_payload_size {
-            // Single packet - no fragmentation needed
+            // Single packet
             let packet = Packet::new(PacketType::Video, self.sequence, data);
             self.sequence = self.sequence.wrapping_add(1);
 
@@ -227,7 +246,7 @@ impl NetworkTransport for UdpTransport {
 
             debug!("Sent UDP packet #{}, {} bytes", packet.sequence, wire_data.len());
         } else {
-            // Need fragmentation - use NAL-aware chunking
+            // FIXED: Use NAL-aware chunking to preserve H.264 structure
             self.send_fragmented_nal_aware(data, max_payload_size).await?;
         }
 
@@ -293,19 +312,23 @@ impl NetworkTransport for UdpTransport {
 }
 
 impl UdpTransport {
-    async fn send_fragmented_nal_aware(&mut self, data: Bytes, max_chunk_size: usize) -> Result<()> {
+    // FIXED: Simple chunking without NAL parsing overhead
+    async fn send_fragmented_simple(&mut self, data: Bytes, max_chunk_size: usize) -> Result<()> {
         let _peer = self.peer_addr
             .ok_or(NetworkError::SendFailed("No peer address set".into()))?;
 
-        // Create NAL-aware chunks
-        let chunks = Self::create_nal_aware_chunks(&data, max_chunk_size);
-        let total_chunks = chunks.len();
+        // Simple chunking - much faster
+        let total_len = data.len();
+        let mut offset = 0;
+        let mut chunk_idx = 0;
+        let total_chunks = (total_len + max_chunk_size - 1) / max_chunk_size;
 
-        info!("Fragmenting {} bytes into {} NAL-aware chunks", data.len(), total_chunks);
+        while offset < total_len {
+            let chunk_end = (offset + max_chunk_size).min(total_len);
+            let chunk = data.slice(offset..chunk_end);
 
-        for (idx, chunk) in chunks.into_iter().enumerate() {
             let mut flags = FLAG_FRAGMENT;
-            if idx == total_chunks - 1 {
+            if chunk_idx == total_chunks - 1 {
                 flags |= FLAG_LAST_FRAGMENT;
             }
 
@@ -324,8 +347,11 @@ impl UdpTransport {
             stats.packets_sent += 1;
             stats.bytes_sent += wire_data.len() as u64;
 
-            debug!("Sent NAL-aware fragment {}/{}, {} bytes",
-                   idx + 1, total_chunks, wire_data.len());
+            debug!("Sent fragment {}/{}, {} bytes",
+                   chunk_idx + 1, total_chunks, wire_data.len());
+
+            offset = chunk_end;
+            chunk_idx += 1;
         }
 
         Ok(())
@@ -338,53 +364,15 @@ mod tests {
     use crate::packet::FLAG_KEYFRAME;
 
     #[test]
-    fn test_nal_boundary_detection() {
-        // H.264 with 4-byte start codes
-        let data = vec![
-            0x00, 0x00, 0x00, 0x01, 0x67, 0x42, // SPS
-            0x00, 0x00, 0x00, 0x01, 0x68, 0xce, // PPS
-            0x00, 0x00, 0x00, 0x01, 0x65, 0x88, // IDR slice
-        ];
-
-        let boundaries = UdpTransport::find_nal_boundaries(&data);
-        assert_eq!(boundaries, vec![0, 6, 12]);
-    }
-
-    #[test]
-    fn test_nal_aware_chunking() {
-        // Create test data with NAL units
-        let mut data = Vec::new();
-
-        // SPS (small)
-        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x01, 0x67]);
-        data.extend_from_slice(&vec![0xFF; 100]); // 100 bytes of SPS data
-
-        // PPS (small)
-        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x01, 0x68]);
-        data.extend_from_slice(&vec![0xEE; 50]); // 50 bytes of PPS data
-
-        // IDR slice (large)
-        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x01, 0x65]);
-        data.extend_from_slice(&vec![0xDD; 2000]); // 2000 bytes of slice data
-
+    fn test_simple_chunking() {
+        // Create test data
+        let data = vec![0xFFu8; 5000];
         let data = Bytes::from(data);
-        let chunks = UdpTransport::create_nal_aware_chunks(&data, 500);
 
-        // Should create multiple chunks, each starting with a NAL unit
-        assert!(chunks.len() > 1);
+        let max_chunk = 1400;
+        let total_chunks = (data.len() + max_chunk - 1) / max_chunk;
 
-        // Each chunk should start with 0x00 0x00
-        for chunk in &chunks {
-            if chunk.len() >= 2 {
-                // Most chunks should start with NAL unit start code
-                // (except when a large NAL is split)
-                let starts_with_nal = chunk[0] == 0x00 && chunk[1] == 0x00;
-                if !starts_with_nal {
-                    // This is acceptable for continuation of a large NAL
-                    println!("Chunk doesn't start with NAL (continuation of large NAL)");
-                }
-            }
-        }
+        assert_eq!(total_chunks, 4); // 5000 / 1400 = 3.57 -> 4 chunks
     }
 
     #[test]

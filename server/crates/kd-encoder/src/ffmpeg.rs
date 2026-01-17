@@ -9,6 +9,8 @@ pub struct FfmpegEncoder {
     encoder: Option<ffmpeg_next::codec::encoder::video::Encoder>,
     frame_count: u64,
     initialized: bool,
+    // FIXED: Pre-allocated buffer for YUV conversion
+    yuv_buffer: Vec<u8>,
 }
 
 // FFmpeg types are not Send by default, but we're using them single-threaded
@@ -20,11 +22,15 @@ impl FfmpegEncoder {
     pub fn new(config: EncoderConfig) -> Result<Self> {
         info!("Initializing FFmpeg encoder");
 
+        // FIXED: Pre-allocate YUV buffer to avoid allocations in hot path
+        let yuv_size = ((config.width * config.height * 3) / 2) as usize;
+
         Ok(Self {
             config,
             encoder: None,
             frame_count: 0,
             initialized: false,
+            yuv_buffer: vec![0u8; yuv_size],
         })
     }
 
@@ -82,11 +88,14 @@ impl FfmpegEncoder {
         }
     }
 
-    fn bgra_to_yuv420p(bgra: &[u8], width: u32, height: u32) -> Vec<u8> {
+    // Change the function signature to not return anything
+    fn bgra_to_yuv420p(&mut self, bgra: &[u8], width: u32, height: u32) {
         let y_size = (width * height) as usize;
         let u_size = y_size / 4;
         let v_size = y_size / 4;
-        let mut yuv = vec![0u8; y_size + u_size + v_size];
+
+        // Use pre-allocated buffer
+        debug_assert!(self.yuv_buffer.len() >= y_size + u_size + v_size);
 
         // Y plane
         for y in 0..height {
@@ -97,7 +106,7 @@ impl FfmpegEncoder {
                 let r = bgra[idx + 2] as f32;
 
                 let y_val = (0.257 * r + 0.504 * g + 0.098 * b + 16.0) as u8;
-                yuv[(y * width + x) as usize] = y_val;
+                self.yuv_buffer[(y * width + x) as usize] = y_val;
             }
         }
 
@@ -111,7 +120,7 @@ impl FfmpegEncoder {
 
                 let u_val = (-0.148 * r - 0.291 * g + 0.439 * b + 128.0) as u8;
                 let u_idx = y_size + ((y / 2) * (width / 2) + (x / 2)) as usize;
-                yuv[u_idx] = u_val;
+                self.yuv_buffer[u_idx] = u_val;
             }
         }
 
@@ -125,11 +134,9 @@ impl FfmpegEncoder {
 
                 let v_val = (0.439 * r - 0.368 * g - 0.071 * b + 128.0) as u8;
                 let v_idx = y_size + u_size + ((y / 2) * (width / 2) + (x / 2)) as usize;
-                yuv[v_idx] = v_val;
+                self.yuv_buffer[v_idx] = v_val;
             }
         }
-
-        yuv
     }
 }
 
@@ -144,7 +151,7 @@ impl VideoEncoder for FfmpegEncoder {
 
             // Select encoder (hardware or software)
             let encoder_name = select_encoder_name(&self.config)?;
-            info!("Selected encoder: {}", encoder_name);
+            info!("🎯 Selected encoder: {}", encoder_name);
 
             // Initialize FFmpeg
             ffmpeg::init()
@@ -182,7 +189,7 @@ impl VideoEncoder for FfmpegEncoder {
             opts.set("preset", preset);
 
             if encoder_name.contains("nvenc") {
-                info!("Configuring NVENC for low latency");
+                info!("🚀 Configuring NVENC for low latency");
                 // NVENC specific settings for low latency
                 opts.set("tune", "ll"); // low latency
                 opts.set("rc", "cbr"); // constant bitrate
@@ -190,10 +197,8 @@ impl VideoEncoder for FfmpegEncoder {
                 opts.set("delay", "0"); // no frame delay
                 opts.set("zerolatency", "1");
                 opts.set("forced-idr", "1");
-                opts.set("gpu", "0"); // Use GPU 0
-
-                // CRITICAL: Verify GPU is available
-                info!("NVENC will use GPU 0");
+                opts.set("gpu", "any");
+                opts.set("repeat-headers", "1");
             } else if encoder_name.contains("x264") {
                 info!("Configuring x264 for low latency");
                 // x264 specific settings
@@ -227,34 +232,44 @@ impl VideoEncoder for FfmpegEncoder {
                 return Err(EncoderError::InitFailed("Encoder not initialized".into()));
             }
 
-            let encode_start = std::time::Instant::now();
+            // Convert to YUV if needed (mutably borrows self, but ends when done)
+            if frame.format == PixelFormat::BGRA {
+                self.bgra_to_yuv420p(&frame.data, frame.width, frame.height);
+            }
 
-            let encoder = self.encoder.as_mut()
-                .ok_or_else(|| EncoderError::EncodingFailed("Encoder not available".into()))?;
+            // Get config values we need (immutable borrow, ends immediately)
+            let width = self.config.width;
+            let height = self.config.height;
+            let codec = self.config.codec;
+            let frame_count = self.frame_count;
 
-            // Convert frame to YUV420P if needed
-            let yuv_data = match frame.format {
-                PixelFormat::BGRA => Self::bgra_to_yuv420p(&frame.data, frame.width, frame.height),
-                PixelFormat::I420 => frame.data.clone(), // I420 is same as YUV420P
-                _ => return Err(EncoderError::InvalidConfig("Unsupported pixel format".into())),
-            };
-
-            // Create FFmpeg frame
-            let mut yuv_frame = ffmpeg::frame::Video::new(
-                ffmpeg::format::Pixel::YUV420P,
-                self.config.width,
-                self.config.height,
-            );
-
-            // Copy Y plane
-            let y_size = (self.config.width * self.config.height) as usize;
+            let y_size = (width * height) as usize;
             let u_size = y_size / 4;
 
+            // Get reference to YUV data
+            let yuv_data = if frame.format == PixelFormat::BGRA {
+                &self.yuv_buffer[..]
+            } else {
+                &frame.data[..]
+            };
+
+            // Create FFmpeg frame (no self access)
+            let mut yuv_frame = ffmpeg::frame::Video::new(
+                ffmpeg::format::Pixel::YUV420P,
+                width,
+                height,
+            );
+
+            // Copy planes
             yuv_frame.data_mut(0).copy_from_slice(&yuv_data[0..y_size]);
             yuv_frame.data_mut(1).copy_from_slice(&yuv_data[y_size..y_size + u_size]);
             yuv_frame.data_mut(2).copy_from_slice(&yuv_data[y_size + u_size..]);
 
-            yuv_frame.set_pts(Some(self.frame_count as i64));
+            yuv_frame.set_pts(Some(frame_count as i64));
+
+            // NOW borrow encoder (after all other self access is done)
+            let encoder = self.encoder.as_mut()
+                .ok_or_else(|| EncoderError::EncodingFailed("Encoder not available".into()))?;
 
             // Send frame to encoder
             encoder.send_frame(&yuv_frame)
@@ -265,17 +280,10 @@ impl VideoEncoder for FfmpegEncoder {
 
             match encoder.receive_packet(&mut encoded_packet) {
                 Ok(_) => {
-                    let encode_time = encode_start.elapsed();
-
-                    if encode_time.as_millis() > 16 {
-                        warn!("Encoding took {}ms (target: <16ms for 60fps)", encode_time.as_millis());
-                    } else if self.frame_count % 60 == 0 {
-                        debug!("Encoded frame {} in {}ms", self.frame_count, encode_time.as_millis());
-                    }
-
                     let is_keyframe = encoded_packet.is_key();
                     let data = encoded_packet.data().unwrap_or(&[]).to_vec();
 
+                    // Now we can access self again (encoder borrow ended)
                     self.frame_count += 1;
 
                     Ok(Some(EncodedPacket {
@@ -284,7 +292,7 @@ impl VideoEncoder for FfmpegEncoder {
                         dts: frame.pts,
                         is_keyframe,
                         timestamp: frame.timestamp,
-                        codec: self.config.codec,
+                        codec,
                     }))
                 }
                 Err(ffmpeg::Error::Other { errno: ffmpeg::error::EAGAIN }) => {
@@ -389,7 +397,7 @@ fn select_encoder_name(config: &EncoderConfig) -> Result<&str> {
                     error!("   - NVIDIA drivers not installed");
                     error!("   - FFmpeg not compiled with --enable-nvenc");
                     error!("   - GPU is too old (needs Kepler or newer)");
-                    warn!("Falling back to SOFTWARE encoding (will be VERY slow)");
+                    warn!("⚠️  Falling back to SOFTWARE encoding (will be VERY slow)");
                 }
             }
             VideoCodec::H265 => {

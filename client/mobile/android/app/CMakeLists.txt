@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22.1)
+cmake_minimum_required(VERSION 4.1.2)
 
 set(CMAKE_ANDROID_STL_TYPE c++_shared)
 
@@ -72,15 +72,3 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
             COMMAND ${CMAKE_STRIP} --strip-unneeded $<TARGET_FILE:kodomo-android>
     )
 endif()
-
-# ============================================================================
-# Print summary
-# ============================================================================
-message(STATUS "================================================")
-message(STATUS "Android Client Configuration")
-message(STATUS "================================================")
-message(STATUS "  ABI: ${ANDROID_ABI}")
-message(STATUS "  SDL3: Built from submodule (client/external/SDL)")
-message(STATUS "  MediaCodec: mediandk")
-message(STATUS "  Decoder: MediaCodec (hardware)")
-message(STATUS "================================================")

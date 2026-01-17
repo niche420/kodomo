@@ -12,7 +12,6 @@ use kd_encoder::{EncoderConfig, EncoderFactory, RawFrame, VideoEncoder, PixelFor
 use kd_network::{NetworkConfig, NetworkTransport, TransportFactory, Packet, PacketType};
 use kd_input::{InputHandler, InputEvent, InputConfig};
 use bytes::Bytes;
-use tracing_subscriber::util::SubscriberInitExt;
 
 const FRAME_CHANNEL_SIZE: usize = 240; // 2 seconds at 60fps
 const PACKET_CHANNEL_SIZE: usize = 240; // 4 seconds worth
@@ -212,46 +211,35 @@ impl StreamingServer {
             use_hardware: self.config.video.hw_accel,
         };
 
-        let encoder = Arc::new(Mutex::new(
-            EncoderFactory::create(encoder_config.clone())
-                .map_err(|e| anyhow::anyhow!("Encoder init failed: {}", e))?
-        ));
+        // FIXED: Don't use Arc<Mutex> - take ownership directly!
+        let mut encoder = EncoderFactory::create(encoder_config.clone())
+            .map_err(|e| anyhow::anyhow!("Encoder init failed: {}", e))?;
 
-        {
-            let mut enc = encoder.lock().unwrap();
-            enc.init(encoder_config.clone())
-                .map_err(|e| anyhow::anyhow!("Encoder config failed: {}", e))?;
-        }
+        encoder.init(encoder_config.clone())
+            .map_err(|e| anyhow::anyhow!("Encoder config failed: {}", e))?;
 
         info!("✓ Video encoder initialized: {:?}, HW accel: {}",
               self.config.video.codec,
               self.config.video.hw_accel);
 
-        // OPTIMIZED: Spawn encoder task with blocking support
+        // FIXED: No more Arc<Mutex> or spawn_blocking!
         let mut frame_rx = self.frame_rx.take().unwrap();
         let packet_tx = self.packet_tx.clone();
         let metrics = self.metrics.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
 
         tokio::spawn(async move {
-            info!("Encoder loop started (OPTIMIZED)");
+            info!("Encoder loop started (DIRECT - NO BLOCKING)");
             let mut frame_number = 0u64;
             let mut last_perf_log = std::time::Instant::now();
             let mut frames_since_perf = 0u64;
+            let mut total_encode_time = std::time::Duration::ZERO;
 
             loop {
                 tokio::select! {
                     Some(captured_frame) = frame_rx.recv() => {
                         frame_number += 1;
                         frames_since_perf += 1;
-
-                        // Log encoding performance every 5 seconds
-                        if last_perf_log.elapsed().as_secs() >= 5 {
-                            let encode_fps = frames_since_perf as f64 / last_perf_log.elapsed().as_secs_f64();
-                            info!("Encoder processing at {:.1} fps", encode_fps);
-                            last_perf_log = std::time::Instant::now();
-                            frames_since_perf = 0;
-                        }
 
                         // Convert to RawFrame
                         let raw_frame = RawFrame {
@@ -268,53 +256,66 @@ impl StreamingServer {
                             timestamp: captured_frame.timestamp,
                         };
 
-                        // OPTIMIZED: Offload encoding to blocking thread pool
-                        let encoder_clone = encoder.clone();
-                        let packet_tx_clone = packet_tx.clone();
-                        let metrics_clone = metrics.clone();
+                        // FIXED: Encode directly in async task - NO spawn_blocking!
+                        let encode_start = std::time::Instant::now();
 
-                        tokio::task::spawn_blocking(move || {
-                            let encode_start = std::time::Instant::now();
+                        match encoder.encode(&raw_frame) {
+                            Ok(Some(packet)) => {
+                                let encode_time = encode_start.elapsed();
+                                total_encode_time += encode_time;
 
-                            let mut enc = encoder_clone.lock().unwrap();
-                            match enc.encode(&raw_frame) {
-                                Ok(Some(packet)) => {
-                                    let encode_time = encode_start.elapsed();
-
-                                    // Warn if encoding is too slow (>16ms for 60fps)
-                                    if encode_time.as_millis() > 16 {
-                                        warn!("Encoding took {}ms (target: <16ms for 60fps)",
-                                              encode_time.as_millis());
-                                    }
-
-                                    // Update metrics
-                                    {
-                                        let mut m = metrics_clone.blocking_write();
-                                        m.frames_encoded += 1;
-                                        m.bytes_encoded += packet.data.len() as u64;
-                                    }
-
-                                    // Send to network
-                                    let meta = EncodedPacketWithMeta {
-                                        data: packet.data,
-                                        is_keyframe: packet.is_keyframe,
-                                        frame_number,
-                                    };
-
-                                    let _ = packet_tx_clone.blocking_send(meta);
-
-                                    if frame_number % 300 == 0 {
-                                        debug!("Encoded {} frames ({}ms)", frame_number, encode_time.as_millis());
-                                    }
+                                // Warn if encoding is too slow (>16ms for 60fps)
+                                if encode_time.as_millis() > 16 {
+                                    warn!("⚠️  Encoding took {}ms (target: <16ms for 60fps) - frame #{}",
+                                          encode_time.as_millis(), frame_number);
                                 }
-                                Ok(None) => {
-                                    // Encoder needs more data - normal
+
+                                // Update metrics
+                                {
+                                    let mut m = metrics.write().await;
+                                    m.frames_encoded += 1;
+                                    m.bytes_encoded += packet.data.len() as u64;
                                 }
-                                Err(e) => {
-                                    error!("Encoding error on frame {}: {}", frame_number, e);
+
+                                // Send to network
+                                let meta = EncodedPacketWithMeta {
+                                    data: packet.data,
+                                    is_keyframe: packet.is_keyframe,
+                                    frame_number,
+                                };
+
+                                let _ = packet_tx.send(meta).await;
+
+                                if frame_number % 300 == 0 {
+                                    let avg_encode = total_encode_time.as_millis() / frames_since_perf as u128;
+                                    debug!("Encoded {} frames (avg: {}ms per frame)",
+                                           frame_number, avg_encode);
                                 }
                             }
-                        });
+                            Ok(None) => {
+                                // Encoder needs more data - normal for some encoders
+                            }
+                            Err(e) => {
+                                error!("❌ Encoding error on frame {}: {}", frame_number, e);
+                            }
+                        }
+
+                        // Log encoding performance every 5 seconds
+                        if last_perf_log.elapsed().as_secs() >= 5 {
+                            let encode_fps = frames_since_perf as f64 / last_perf_log.elapsed().as_secs_f64();
+                            let avg_encode_ms = if frames_since_perf > 0 {
+                                total_encode_time.as_millis() / frames_since_perf as u128
+                            } else {
+                                0
+                            };
+
+                            info!("🎬 Encoder: {:.1} fps, avg {:.1}ms per frame",
+                                  encode_fps, avg_encode_ms);
+
+                            last_perf_log = std::time::Instant::now();
+                            frames_since_perf = 0;
+                            total_encode_time = std::time::Duration::ZERO;
+                        }
                     }
                     _ = shutdown_rx.recv() => {
                         info!("Encoder loop shutting down");
@@ -324,11 +325,8 @@ impl StreamingServer {
             }
 
             // Flush encoder
-            {
-                let mut enc = encoder.lock().unwrap();
-                if let Ok(packets) = enc.flush() {
-                    info!("Flushed {} remaining packets", packets.len());
-                }
+            if let Ok(packets) = encoder.flush() {
+                info!("Flushed {} remaining packets", packets.len());
             }
 
             info!("Encoder loop stopped");

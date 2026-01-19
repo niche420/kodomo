@@ -1,5 +1,3 @@
-// crates/kd-encoder/src/lib.rs
-
 use std::time::Instant;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
@@ -8,10 +6,13 @@ use thiserror::Error;
 pub mod software;
 
 #[cfg(feature = "ffmpeg")]
-pub mod ffmpeg;
+mod ffmpeg;
 
 #[cfg(feature = "openh264")]
-pub mod openh264_encoder;
+mod openh264_encoder;
+
+#[cfg(feature = "nvenc")]
+mod nvenc_encoder;
 
 pub type Result<T> = std::result::Result<T, EncoderError>;
 

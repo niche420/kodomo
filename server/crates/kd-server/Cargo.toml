@@ -10,6 +10,9 @@ kd-encoder = { path = "../kd-encoder" }
 kd-network = { path = "../kd-network" }
 kd-input = { path = "../kd-input" }
 
+[target.'cfg(windows)'.dependencies]
+kd-encoder = { path = "../kd-encoder", features = ["nvenc"], default-features = false }
+
 anyhow.workspace = true
 bytes.workspace = true
 tokio.workspace = true

@@ -116,6 +116,10 @@ private:
 
     // Packet reassembly
     std::vector<uint8_t> fragment_buffer_;
+    std::vector<uint8_t> sps_pps_buffer_;
+    std::vector<uint8_t> access_unit_buffer_;
     uint32_t expected_sequence_ = 0;
     bool reassembling_ = false;
+    bool decoder_initialized_ = false;
+    bool waiting_for_idr_ = true;
 };

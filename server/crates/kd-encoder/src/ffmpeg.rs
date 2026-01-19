@@ -91,49 +91,47 @@ impl FfmpegEncoder {
     // Change the function signature to not return anything
     fn bgra_to_yuv420p(&mut self, bgra: &[u8], width: u32, height: u32) {
         let y_size = (width * height) as usize;
-        let u_size = y_size / 4;
-        let v_size = y_size / 4;
+        let uv_size = y_size / 4;  // U and V each get this
 
         // Use pre-allocated buffer
-        debug_assert!(self.yuv_buffer.len() >= y_size + u_size + v_size);
+        debug_assert!(self.yuv_buffer.len() >= y_size + 2 * uv_size);
 
-        // Y plane
+        // Y plane (full res, no changes needed)
         for y in 0..height {
             for x in 0..width {
                 let idx = ((y * width + x) * 4) as usize;
                 let b = bgra[idx] as f32;
                 let g = bgra[idx + 1] as f32;
                 let r = bgra[idx + 2] as f32;
-
-                let y_val = (0.257 * r + 0.504 * g + 0.098 * b + 16.0) as u8;
+                let y_val = (0.257 * r + 0.504 * g + 0.098 * b + 16.0).clamp(0.0, 255.0) as u8;  // Clamped for safety, queen
                 self.yuv_buffer[(y * width + x) as usize] = y_val;
             }
         }
 
-        // U plane
+        // U and V planes: Average 2x2 blocks for proper subsampling
+        let half_width = width / 2;
+        let half_height = height / 2;
         for y in (0..height).step_by(2) {
             for x in (0..width).step_by(2) {
-                let idx = ((y * width + x) * 4) as usize;
-                let b = bgra[idx] as f32;
-                let g = bgra[idx + 1] as f32;
-                let r = bgra[idx + 2] as f32;
+                // Grab the 2x2 block indices
+                let tl_idx = ((y * width + x) * 4) as usize;      // Top-left
+                let tr_idx = ((y * width + x + 1) * 4) as usize;  // Top-right
+                let bl_idx = (((y + 1) * width + x) * 4) as usize;     // Bottom-left
+                let br_idx = (((y + 1) * width + x + 1) * 4) as usize; // Bottom-right
 
-                let u_val = (-0.148 * r - 0.291 * g + 0.439 * b + 128.0) as u8;
-                let u_idx = y_size + ((y / 2) * (width / 2) + (x / 2)) as usize;
+                // Average BGR for the block (ignoring A)
+                let avg_b = (bgra[tl_idx] as f32 + bgra[tr_idx] as f32 + bgra[bl_idx] as f32 + bgra[br_idx] as f32) / 4.0;
+                let avg_g = (bgra[tl_idx + 1] as f32 + bgra[tr_idx + 1] as f32 + bgra[bl_idx + 1] as f32 + bgra[br_idx + 1] as f32) / 4.0;
+                let avg_r = (bgra[tl_idx + 2] as f32 + bgra[tr_idx + 2] as f32 + bgra[bl_idx + 2] as f32 + bgra[br_idx + 2] as f32) / 4.0;
+
+                // U (Cb) average
+                let u_val = (-0.148 * avg_r - 0.291 * avg_g + 0.439 * avg_b + 128.0).clamp(0.0, 255.0) as u8;
+                let u_idx = y_size + ((y / 2) * half_width + (x / 2)) as usize;
                 self.yuv_buffer[u_idx] = u_val;
-            }
-        }
 
-        // V plane
-        for y in (0..height).step_by(2) {
-            for x in (0..width).step_by(2) {
-                let idx = ((y * width + x) * 4) as usize;
-                let b = bgra[idx] as f32;
-                let g = bgra[idx + 1] as f32;
-                let r = bgra[idx + 2] as f32;
-
-                let v_val = (0.439 * r - 0.368 * g - 0.071 * b + 128.0) as u8;
-                let v_idx = y_size + u_size + ((y / 2) * (width / 2) + (x / 2)) as usize;
+                // V (Cr) average
+                let v_val = (0.439 * avg_r - 0.368 * avg_g - 0.071 * avg_b + 128.0).clamp(0.0, 255.0) as u8;
+                let v_idx = y_size + uv_size + ((y / 2) * half_width + (x / 2)) as usize;
                 self.yuv_buffer[v_idx] = v_val;
             }
         }
@@ -149,11 +147,9 @@ impl VideoEncoder for FfmpegEncoder {
 
             self.config = config;
 
-            // Select encoder (hardware or software)
             let encoder_name = select_encoder_name(&self.config)?;
             info!("🎯 Selected encoder: {}", encoder_name);
 
-            // Initialize FFmpeg
             ffmpeg::init()
                 .map_err(|e| EncoderError::InitFailed(format!("FFmpeg init failed: {}", e)))?;
 
@@ -162,13 +158,11 @@ impl VideoEncoder for FfmpegEncoder {
 
             info!("Found codec: {}", codec.name());
 
-            // Create encoder context
             let mut context = ffmpeg::codec::context::Context::new_with_codec(codec)
                 .encoder()
                 .video()
                 .map_err(|e| EncoderError::InitFailed(format!("Failed to create encoder context: {}", e)))?;
 
-            // Configure encoder
             context.set_width(self.config.width);
             context.set_height(self.config.height);
             context.set_format(ffmpeg::format::Pixel::YUV420P);
@@ -176,39 +170,36 @@ impl VideoEncoder for FfmpegEncoder {
             context.set_frame_rate(Some(ffmpeg::Rational::new(self.config.fps as i32, 1)));
             context.set_bit_rate(self.config.bitrate_kbps as usize * 1000);
             context.set_max_bit_rate(self.config.bitrate_kbps as usize * 1000);
-
-            // Set GOP size (keyframe interval)
             context.set_gop(self.config.keyframe_interval);
 
-            // Set preset
             let preset = self.preset_to_ffmpeg(encoder_name);
             info!("Using preset: {}", preset);
 
-            // Set encoder-specific options
             let mut opts = ffmpeg::Dictionary::new();
             opts.set("preset", preset);
 
             if encoder_name.contains("nvenc") {
-                info!("🚀 Configuring NVENC for low latency");
-                // NVENC specific settings for low latency
-                opts.set("tune", "ll"); // low latency
-                opts.set("rc", "cbr"); // constant bitrate
-                opts.set("cbr", "1");
-                opts.set("delay", "0"); // no frame delay
-                opts.set("zerolatency", "1");
-                opts.set("forced-idr", "1");
-                opts.set("gpu", "any");
-                opts.set("repeat-headers", "1");
+                info!("🚀 Configuring NVENC for Annex-B streaming");
+                opts.set("tune", "ll");
+                opts.set("rc", "cbr");
+                opts.set("delay", "0");
+
+                opts.set("g", &*self.config.keyframe_interval.to_string());
+                opts.set("idr", "1");                 // 🔑 THIS IS THE KEY
+                opts.set("repeat_headers", "1");
+                opts.set("intra-refresh", "0");        // prevent non-IDR refresh
             } else if encoder_name.contains("x264") {
-                info!("Configuring x264 for low latency");
-                // x264 specific settings
+                info!("Configuring x264 for Annex-B streaming");
                 opts.set("tune", "zerolatency");
+                opts.set("x264-params", "repeat-headers=1:annexb=1");  // Force Annex-B + repeat headers
             }
 
-            // Open encoder with options
+            // DON'T set GLOBAL_HEADER - we want inline SPS/PPS in Annex-B format
             let opened_encoder = context
                 .open_with(opts)
                 .map_err(|e| EncoderError::InitFailed(format!("Failed to open encoder: {}", e)))?;
+
+            info!("✅ Encoder configured for Annex-B with inline SPS/PPS");
 
             self.encoder = Some(opened_encoder);
             self.initialized = true;
@@ -217,6 +208,7 @@ impl VideoEncoder for FfmpegEncoder {
             info!("   Resolution: {}x{}", self.config.width, self.config.height);
             info!("   FPS: {}", self.config.fps);
             info!("   Bitrate: {} kbps", self.config.bitrate_kbps);
+            info!("   ⚠️  SPS/PPS will repeat with every keyframe (Annex-B)");
 
             Ok(())
         }

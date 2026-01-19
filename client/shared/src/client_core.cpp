@@ -6,6 +6,42 @@
 #include "connection_manager.hpp"
 #include <iostream>
 
+static bool has_sps_pps(const std::vector<uint8_t>& data) {
+    bool has_sps = false;
+    bool has_pps = false;
+
+    for (size_t i = 0; i + 4 < data.size(); ++i) {
+        if (data[i] == 0x00 && data[i + 1] == 0x00 &&
+            (data[i + 2] == 0x01 || (data[i + 2] == 0x00 && data[i + 3] == 0x01))) {
+
+            size_t nal_start = (data[i + 2] == 0x01) ? i + 3 : i + 4;
+            if (nal_start < data.size()) {
+                uint8_t nal_type = data[nal_start] & 0x1F;
+                if (nal_type == 7) has_sps = true;
+                if (nal_type == 8) has_pps = true;
+            }
+        }
+    }
+    return has_sps && has_pps;
+}
+
+static bool has_idr(const std::vector<uint8_t>& data) {
+    for (size_t i = 0; i + 4 < data.size(); ++i) {
+        if (data[i] == 0x00 && data[i + 1] == 0x00 &&
+            (data[i + 2] == 0x01 || (data[i + 2] == 0x00 && data[i + 3] == 0x01))) {
+
+            size_t nal_start = (data[i + 2] == 0x01) ? i + 3 : i + 4;
+            if (nal_start < data.size()) {
+                uint8_t nal_type = data[nal_start] & 0x1F;
+                if (nal_type == 5) {
+                    return true; // IDR slice
+                }
+            }
+        }
+    }
+    return false;
+}
+
 // Packet flags (must match server)
 const uint8_t FLAG_KEYFRAME = 0x01;
 const uint8_t FLAG_FRAGMENT = 0x02;
@@ -38,23 +74,12 @@ bool ClientCore::initialize(const ClientConfig& config, const PlatformCallbacks&
             }
             return false;
         }
-        std::cout << "✓ Decoder created" << std::endl;
+        std::cout << "✓ Decoder created (NOT initialized yet - waiting for SPS/PPS/IDR)" << std::endl;
 
-        std::cout << "Initializing decoder..." << std::endl;
-        if (!decoder_->initialize()) {
-            if (callbacks_.on_error) {
-                callbacks_.on_error("Failed to initialize decoder");
-            }
-            return false;
-        }
-        std::cout << "✓ Decoder initialized" << std::endl;
-
-        // Create renderer (will handle null window gracefully on Android)
         std::cout << "Creating renderer..." << std::endl;
         renderer_ = std::make_unique<Renderer>(window);
         std::cout << "✓ Renderer created" << std::endl;
 
-        // Only initialize renderer if we have a window
         if (window != nullptr) {
             std::cout << "Initializing renderer..." << std::endl;
             if (!renderer_->initialize()) {
@@ -64,7 +89,8 @@ bool ClientCore::initialize(const ClientConfig& config, const PlatformCallbacks&
                 return false;
             }
             std::cout << "✓ Renderer initialized" << std::endl;
-        } else {
+        }
+        else {
             std::cout << "Skipping renderer initialization (no window - Android will decode only)" << std::endl;
         }
 
@@ -82,11 +108,12 @@ bool ClientCore::initialize(const ClientConfig& config, const PlatformCallbacks&
 
         std::cout << "✓ Client Core initialized" << std::endl;
         running_ = true;
-        last_stats_time_ = 0; // Will be set on first update
+        last_stats_time_ = 0;
 
         return true;
 
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e) {
         std::cerr << "Exception during initialization: " << e.what() << std::endl;
         if (callbacks_.on_error) {
             callbacks_.on_error(std::string("Init exception: ") + e.what());
@@ -102,7 +129,6 @@ bool ClientCore::connect() {
 
     std::string server_address = config_.server_address;
 
-    // Use Tailscale if enabled
     if (config_.use_tailscale && !config_.tailscale_hostname.empty()) {
         std::cout << "Resolving Tailscale address: " << config_.tailscale_hostname << std::endl;
 
@@ -121,7 +147,8 @@ bool ClientCore::connect() {
 
             server_address = tailscale_addr;
             std::cout << "✓ Resolved to: " << server_address << std::endl;
-        } catch (const std::exception& e) {
+        }
+        catch (const std::exception& e) {
             std::cerr << "Exception resolving Tailscale address: " << e.what() << std::endl;
             if (callbacks_.on_error) {
                 callbacks_.on_error(std::string("Tailscale resolution error: ") + e.what());
@@ -151,7 +178,8 @@ bool ClientCore::connect() {
         }
 
         std::cout << "network_->connect() succeeded!" << std::endl;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e) {
         std::cerr << "Exception connecting to server: " << e.what() << std::endl;
         if (callbacks_.on_error) {
             callbacks_.on_error(std::string("Connection error: ") + e.what());
@@ -165,7 +193,7 @@ bool ClientCore::connect() {
         callbacks_.on_status_change("Connected to " + server_address);
     }
 
-    std::cout << "✓ Connection successful!" << std::endl;
+    std::cout << "✓ Connection successful - waiting for SPS/PPS/IDR to initialize decoder" << std::endl;
     return true;
 }
 
@@ -174,22 +202,18 @@ bool ClientCore::update() {
         return false;
     }
 
-    // Check if we should quit (platform-specific)
     if (callbacks_.should_quit && callbacks_.should_quit()) {
         running_ = false;
         return false;
     }
 
-    // Don't process if paused (mobile)
     if (paused_) {
         SDL_Delay(1);
         return true;
     }
 
-    // Process network packets
     process_packets();
 
-    // Update stats periodically
     if (last_stats_time_ == 0) {
         last_stats_time_ = SDL_GetPerformanceCounter();
     }
@@ -203,118 +227,134 @@ bool ClientCore::update() {
         last_stats_time_ = current_time;
     }
 
-    // Small delay to avoid spinning
     SDL_Delay(1);
 
     return connected_ && running_;
 }
 
 void ClientCore::process_packets() {
-    int packets_processed = 0;
     const int max_packets_per_frame = 10;
+    int packets_processed = 0;
 
     while (network_->has_data() && packets_processed < max_packets_per_frame) {
         auto packet_data = network_->receive();
-        if (packet_data.empty()) {
-            break;
-        }
-
+        if (packet_data.empty()) break;
         packets_processed++;
 
-        // Parse packet header (18 bytes minimum)
-        if (packet_data.size() < 18) {
-            std::cerr << "Packet too short: " << packet_data.size() << " bytes\n";
-            continue;
-        }
+        if (packet_data.size() < 18) continue;
 
         uint8_t packet_type = packet_data[0];
-
         uint32_t sequence =
-            (static_cast<uint32_t>(packet_data[1]) << 24) |
-            (static_cast<uint32_t>(packet_data[2]) << 16) |
-            (static_cast<uint32_t>(packet_data[3]) << 8) |
-            static_cast<uint32_t>(packet_data[4]);
-
+            (packet_data[1] << 24) |
+            (packet_data[2] << 16) |
+            (packet_data[3] << 8) |
+            packet_data[4];
         uint8_t flags = packet_data[13];
-
         uint32_t payload_len =
-            (static_cast<uint32_t>(packet_data[14]) << 24) |
-            (static_cast<uint32_t>(packet_data[15]) << 16) |
-            (static_cast<uint32_t>(packet_data[16]) << 8) |
-            static_cast<uint32_t>(packet_data[17]);
+            (packet_data[14] << 24) |
+            (packet_data[15] << 16) |
+            (packet_data[16] << 8) |
+            packet_data[17];
 
-        if (packet_data.size() < 18 + payload_len) {
-            continue;
-        }
+        if (packet_data.size() < 18 + payload_len) continue;
 
-        std::vector<uint8_t> payload(
-            packet_data.begin() + 18,
-            packet_data.begin() + 18 + payload_len
-        );
+        std::vector<uint8_t> payload(packet_data.begin() + 18,
+            packet_data.begin() + 18 + payload_len);
 
-        if (packet_type != 0x01) {  // Video packet
-            continue;
-        }
+        if (packet_type != 0x01) continue;
 
-        bool is_fragment = (flags & FLAG_FRAGMENT) != 0;
-        bool is_last_fragment = (flags & FLAG_LAST_FRAGMENT) != 0;
+        bool is_fragment = flags & FLAG_FRAGMENT;
+        bool is_last_fragment = flags & FLAG_LAST_FRAGMENT;
+        bool is_keyframe = flags & FLAG_KEYFRAME;
 
+        // --- Fragment handling ---
         if (is_fragment) {
             if (!reassembling_) {
                 fragment_buffer_.clear();
                 expected_sequence_ = sequence;
                 reassembling_ = true;
             }
-
+            // Drop if sequence mismatch
             if (sequence != expected_sequence_) {
                 fragment_buffer_.clear();
                 reassembling_ = false;
+                waiting_for_idr_ = true; // Wait for next IDR
                 continue;
             }
-
             fragment_buffer_.insert(fragment_buffer_.end(), payload.begin(), payload.end());
             expected_sequence_++;
 
-            if (is_last_fragment) {
-                frames_received_since_update_++;
-                stats_.frames_received++;
+            if (!is_last_fragment) continue;
 
-                auto frame = decoder_->decode(fragment_buffer_);
-                if (frame && renderer_) {
-                    frames_decoded_since_update_++;
-                    stats_.frames_decoded++;
+            // Complete frame
+            payload = fragment_buffer_;
+            fragment_buffer_.clear();
+            reassembling_ = false;
+        }
+        else if (reassembling_) {
+            // Previous frame incomplete, discard it
+            fragment_buffer_.clear();
+            reassembling_ = false;
+            waiting_for_idr_ = true;
+            continue;
+        }
 
-                    renderer_->render(*frame);
+        frames_received_since_update_++;
+        stats_.frames_received++;
 
-                    frames_rendered_since_update_++;
-                    stats_.frames_rendered++;
+        // --- SPS/PPS handling ---
+        if (!decoder_initialized_) {
+            if (has_sps_pps(payload)) {
+                sps_pps_buffer_ = payload;
+                if (!decoder_->initialize()) {
+                    std::cerr << "❌ Decoder initialization failed" << std::endl;
+                    continue;
                 }
-
-                fragment_buffer_.clear();
-                reassembling_ = false;
+                decoder_initialized_ = true;
+                waiting_for_idr_ = true;
+                std::cout << "✓ Decoder initialized, waiting for IDR" << std::endl;
             }
-        } else {
-            if (reassembling_) {
-                fragment_buffer_.clear();
-                reassembling_ = false;
-            }
+            continue; // Do not decode until IDR
+        }
 
-            frames_received_since_update_++;
-            stats_.frames_received++;
+        // --- Wait for first IDR ---
+        if (waiting_for_idr_) {
+            if (!has_idr(payload)) continue;
+            std::cout << "IDR received - starting decode" << std::endl;
+            waiting_for_idr_ = false;
+        }
 
-            auto frame = decoder_->decode(payload);
-            if (frame && renderer_) {
-                frames_decoded_since_update_++;
-                stats_.frames_decoded++;
+        // --- Build access unit ---
+        access_unit_buffer_.clear();
+        if (!sps_pps_buffer_.empty() && has_idr(payload)) {
+            access_unit_buffer_.reserve(sps_pps_buffer_.size() + payload.size());
+            access_unit_buffer_.insert(access_unit_buffer_.end(),
+                sps_pps_buffer_.begin(),
+                sps_pps_buffer_.end());
+        }
+        access_unit_buffer_.insert(access_unit_buffer_.end(), payload.begin(), payload.end());
 
-                renderer_->render(*frame);
+        // --- Decode frame ---
+        auto frame = decoder_->decode(access_unit_buffer_);
+        access_unit_buffer_.clear();
 
-                frames_rendered_since_update_++;
-                stats_.frames_rendered++;
-            }
+        if (!frame) {
+            // If decoding fails, drop everything and wait for next IDR
+            waiting_for_idr_ = true;
+            continue;
+        }
+
+        frames_decoded_since_update_++;
+        stats_.frames_decoded++;
+
+        if (renderer_) {
+            renderer_->render(*frame);
+            frames_rendered_since_update_++;
+            stats_.frames_rendered++;
         }
     }
 }
+
 
 void ClientCore::update_stats() {
     stats_.average_fps = frames_rendered_since_update_;
@@ -347,25 +387,25 @@ void ClientCore::handle_sdl_event(const SDL_Event& event) {
     if (!input_handler_) return;
 
     switch (event.type) {
-        case SDL_EVENT_KEY_DOWN:
-            handle_keyboard_event(event.key, true);
-            break;
+    case SDL_EVENT_KEY_DOWN:
+        handle_keyboard_event(event.key, true);
+        break;
 
-        case SDL_EVENT_KEY_UP:
-            handle_keyboard_event(event.key, false);
-            break;
+    case SDL_EVENT_KEY_UP:
+        handle_keyboard_event(event.key, false);
+        break;
 
-        case SDL_EVENT_MOUSE_MOTION:
-            handle_mouse_motion(event.motion);
-            break;
+    case SDL_EVENT_MOUSE_MOTION:
+        handle_mouse_motion(event.motion);
+        break;
 
-        case SDL_EVENT_MOUSE_BUTTON_DOWN:
-            handle_mouse_button(event.button, true);
-            break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        handle_mouse_button(event.button, true);
+        break;
 
-        case SDL_EVENT_MOUSE_BUTTON_UP:
-            handle_mouse_button(event.button, false);
-            break;
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+        handle_mouse_button(event.button, false);
+        break;
     }
 }
 
@@ -390,11 +430,9 @@ void ClientCore::handle_mouse_button(const SDL_MouseButtonEvent& event, bool pre
     }
 }
 
-// Mobile-specific touch handling
 void ClientCore::handle_touch_down(float x, float y, int finger_id) {
     if (!config_.is_mobile || !input_handler_) return;
 
-    // Convert touch to mouse event for compatibility
     SDL_MouseButtonEvent button_event{};
     button_event.x = x * config_.width;
     button_event.y = y * config_.height;
@@ -424,7 +462,6 @@ void ClientCore::handle_touch_move(float x, float y, int finger_id) {
     handle_mouse_motion(motion_event);
 }
 
-// Mobile lifecycle
 void ClientCore::on_pause() {
     std::cout << "App paused" << std::endl;
     paused_ = true;

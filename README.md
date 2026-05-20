@@ -1,172 +1,50 @@
 # Kodomo
-Since u were a kid, u ever get on the toilet, and ur like, "man, why I gotta play
-shitty mobile games when I could be playing something intense like Yakuza 4?"
 
-yeah
+Stream PC games to your phone over LAN.
 
-Basically, this is another game streaming platform, but for desktop and mobile.
+## Architecture
 
-## Features
-
-### Server
-- **Screen Capture**: Platform-native screen capture (Windows, macOS, Linux)
-- **Hardware Encoding**: GPU-accelerated encoding (NVENC, VideoToolbox)
-- **Multiple Transports**: UDP and WebRTC networking protocols
-- **Input Handling**: Remote keyboard, mouse, and gamepad input
-- **Metrics & Monitoring**: Real-time performance metrics via HTTP endpoint
-- **Adaptive Streaming**: ML-based bitrate and quality optimization
-
-### Desktop Client
-- **Cross-Platform**: CMake-based C++ client for Windows, macOS, and Linux
-- **Hardware Decoding**: GPU-accelerated video decoding
-- **Low-Latency Rendering**: OpenGL/Vulkan rendering pipeline
-- **Input Forwarding**: Sends user input back to server
-- **Configurable**: Fullscreen mode, custom resolutions, server connection
-
-### ML Optimizer
-- **Bitrate Prediction**: LSTM neural network for optimal bitrate
-- **Quality Optimization**: DQN reinforcement learning agent
-- **Real-time Adaptation**: WebSocket integration with streaming server
-- **Online Learning**: Optional real-time model training
-
-## Installation
-
-### Prerequisites
-
-**Server (Rust):**
-- Rust 1.75+ (2024 edition)
-- CMake 3.20+
-- Platform-specific dependencies:
-  - Windows: Windows SDK
-  - macOS: Xcode Command Line Tools
-  - Linux: X11/Wayland dev packages
-
-**Desktop Client (C++):**
-- CMake 3.20+
-- C++23 compiler
-- vcpkg (for dependencies)
-- FFmpeg, SDL2, OpenGL
-
-**ML Optimizer (Python):**
-- Python 3.8+
-- PyTorch, NumPy, WebSocket-client
-
-### Building
-
-#### Server
-
-```bash
-cd vcpkg
-./bootstrap-vcpkg
-./vcpkg install ffmpeg[nvcodec]:x64-windows
-
-# Build the streaming server
-cargo build --release -p kd-server
-
-# Run the server
-cargo run --release -p kd-server -- --config config.toml
+```
+kd-server   ? Windows capture, encode, and stream server (Rust + egui)
+kd-shared   ? RTP packetization, depacketization, session types (Rust)
+kd-ffi      ? C exports of kd-shared for iOS (Rust)
+clients/ios ? iOS receiver, VideoToolbox decode, Metal render (Swift)
 ```
 
-#### Desktop Client
+## Pipeline
 
-```bash
-cd clients/desktop
-
-# Install dependencies (Windows)
-.\install_deps.bat
-
-# Install dependencies (Linux/macOS)
-./install_deps.sh
-
-# Build
-cmake --preset release
-cmake --build build/release
-
-# Run
-./build/release/kodomo-client --server 127.0.0.1:8080
+```
+DXGI Capture ? FrameSlot ? FFmpeg/NVENC Encode ? PacketQueue ? UDP Send
 ```
 
-#### ML Optimizer
+## Requirements
 
-```bash
-cd python
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-pip install -e .
+- Windows 11, NVIDIA GPU (NVENC) or software fallback via libx264
+- LLVM installed
+- vcpkg with `ffmpeg[nvcodec]:x64-windows` or manual FFmpeg install
 
-# Run optimizer
-python -m optimizer.optimizer --server ws://localhost:9090/metrics
-```
+## Build
 
-## Configuration
-
-### Server Configuration (TOML)
+Copy `.cargo/config.toml.example` to `.cargo/config.toml` and fill in your paths:
 
 ```toml
-[server]
-name = "My Streaming Server"
-max_clients = 4
-metrics_port = 9090
+[env]
+# Path to your vcpkg installation ? remove if using FFMPEG_DIR instead
+VCPKG_ROOT = "C:\\path\\to\\vcpkg"
 
-[video]
-width = 1920
-height = 1080
-fps = 60
-bitrate_kbps = 10000
-codec = "h264"
-hw_accel = true
+# Path to a manual FFmpeg install ? remove if using VCPKG_ROOT instead
+FFMPEG_DIR = "C:\\path\\to\\ffmpeg"
 
-[network]
-transport = "udp"
-port = 8080
-bind_address = "0.0.0.0"
-
-[input]
-keyboard_enabled = true
-mouse_enabled = true
-gamepad_enabled = true
+# Path to your LLVM bin directory ? always required
+LIBCLANG_PATH = "C:\\Program Files\\LLVM\\bin"
 ```
 
-See `server/crates/kd-server/config.toml` for full configuration options.
+Then build with:
 
-### Client Options
-
-```bash
-kodomo-client [options]
-  --server <address>    Server address (default: 127.0.0.1:8080)
-  --width <width>       Window width (default: 1920)
-  --height <height>     Window height (default: 1080)
-  --fullscreen          Start in fullscreen mode
-  --help                Show help message
+```
+cargo build
 ```
 
-## Usage
+## Status
 
-### Basic Streaming
-
-1. Start the server:
-```bash
-cargo run --release -p kd-server -- --config config.toml
-```
-
-2. Connect with desktop client:
-```bash
-kodomo-client --server 127.0.0.1:8080 --fullscreen
-```
-
-## License
-
-MIT License - See LICENSE file for details
-
-## Contributing
-
-idgaf
-
-## Roadmap
-
-- As you can see, very Windows-biased, but aiming to get linux and macOS up soon
-- Doing Android first, then iOS
-- WebRTC transport optimization
-- Multiple monitor support
-- Web-based client
+Milestone 1 in progress ? server pipeline complete, iOS client not yet started.

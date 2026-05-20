@@ -1,0 +1,11 @@
+[package]
+name = "kd-shared"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+uuid = { version = "1.23.1", features = ["v4", "serde"]}

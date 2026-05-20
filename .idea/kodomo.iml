@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="FacetManager">
+    <facet type="Python" name="Python facet">
+      <configuration sdkName="Python 3.13 (kodomo)" />
+    </facet>
+  </component>
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/server/crates/kd-c/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/server/crates/kd-capture/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/server/crates/kd-core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/server/crates/kd-encoder/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/server/crates/kd-input/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/server/crates/kd-network/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/server/crates/kd-server/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/server/crates/kd-win32/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/kd-ffi/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/kd-server/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/kd-shared/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/server/target" />
+      <excludeFolder url="file://$MODULE_DIR$/kd-ffi/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="library" name="Python 3.13 (kodomo) interpreter library" level="application" />
+  </component>
+</module>

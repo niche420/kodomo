@@ -1,0 +1,24 @@
+[package]
+name = "kd-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kd-shared.path = "../kd-shared"
+anyhow.workspace = true
+serde.workspace = true
+toml = "1.1.2+spec-1.1.0"
+
+[target.'cfg(windows)'.dependencies]
+ffmpeg-next = { version = "8.1.0", default-features = false, features = [
+    "codec",
+    "format",
+    "software-scaling"
+]}
+windows = { version = "0.62.2", features = [
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi"
+]}

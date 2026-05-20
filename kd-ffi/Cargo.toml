@@ -1,0 +1,14 @@
+[package]
+name = "kd-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type=["staticlib"]
+
+[build-dependencies]
+cbindgen = "0.29.2"
+
+[dependencies]
+kd-shared.path = "../kd-shared"

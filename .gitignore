@@ -1,2 +1,12 @@
-.cargo
+.cargo/config.toml
 target/
+kd-server-data
+
+.DS_Store
+## User settings
+.DS_Store
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate

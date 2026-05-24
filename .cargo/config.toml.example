@@ -1,0 +1,4 @@
+[env]
+VCPKG_ROOT = "path/to/vcpkg"
+FFMPEG_DIR = "path/to/ffmpeg"
+LIBCLANG_PATH = "path/to/llvm/bin"

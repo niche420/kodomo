@@ -1,3 +1,0 @@
-[env]
-VCPKG_ROOT = "D:\\git\\vcpkg"
-LIBCLANG_PATH = "D:\\LLVM\\bin"

@@ -11,7 +11,7 @@ pub trait FrameEncoder
     fn encode_frame(&mut self, frame: Frame) -> anyhow::Result<Vec<Vec<u8>>>;
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct EncodeConfig {
     fps: u32,
     width: u32,

@@ -1,6 +1,6 @@
 mod error;
 pub mod rtp;
-mod session;
-mod connect;
-mod game;
-mod input;
+pub mod session;
+pub mod connect;
+pub mod game;
+pub mod input;

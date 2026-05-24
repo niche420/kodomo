@@ -4,7 +4,6 @@ use std::str::FromStr;
 use std::sync::{Arc, Condvar, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use ffmpeg_next::ffi::tm;
 use serde::{Deserialize, Serialize};
 use kd_shared::rtp::packetizer::Packetizer;
 use kd_shared::rtp::{NalType, RtpPacket};
@@ -63,7 +62,7 @@ impl PacketQueue {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct PipelineConfig {
     encode: EncodeConfig,
     network: NetworkConfig,

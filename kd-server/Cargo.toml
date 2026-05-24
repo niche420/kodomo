@@ -7,7 +7,13 @@ edition = "2024"
 kd-shared.path = "../kd-shared"
 anyhow.workspace = true
 serde.workspace = true
+eframe = {version = "0.34.2", features = ["persistence", "ron", "serde"]}
+egui = "0.34.2"
+image = "0.25.10"
+qrcode = "0.14.1"
+rfd = "0.17.2"
 toml = "1.1.2+spec-1.1.0"
+uuid.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 ffmpeg-next = { version = "8.1.0", default-features = false, features = [

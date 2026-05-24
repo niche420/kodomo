@@ -1,18 +1,9 @@
+use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 use crate::input::InputDevice;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GameMetadata
 {
-    title: String,
-    genre: Genre,
-    input: InputDevice
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum Genre
-{
-    Shooter,
-    Rpg,
-    Platformer
+    pub title: String
 }

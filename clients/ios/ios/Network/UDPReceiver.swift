@@ -1,7 +1,8 @@
 import Network
 import Foundation
+import Combine
 
-class UDPReceiver {
+class UDPReceiver: ObservableObject {
     private var listener: NWListener?
     var onPacketReceived: ((Data) -> Void)?
     
@@ -19,7 +20,19 @@ class UDPReceiver {
         listener?.start(queue: .global())
     }
     
+    private func receive(on connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65535) { [weak self] data, _, isComplete, error in
+            if let data = data {
+                self?.onPacketReceived?(data)
+            }
+            if error == nil {
+                self?.receive(on: connection)
+            }
+        }
+    }
+    
     func stop() {
-        // cancel listener
+        listener?.cancel()
+        listener = nil
     }
 }

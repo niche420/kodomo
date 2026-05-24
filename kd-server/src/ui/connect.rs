@@ -10,6 +10,7 @@ use crate::ui::AppState;
 use crate::ui::screen::{Screen, ScreenType};
 
 const DEFAULT_STREAM_PORT: u16 = 5000;
+const DEFAULT_HANDSHAKE_PORT: u16 = 6000;
 
 pub struct ConnectScreen {
     state: Rc<RefCell<AppState>>
@@ -46,7 +47,7 @@ impl Screen for ConnectScreen {
         ui.add_space(16.0);
         ui.label("Scan with Kodomo on your iPhone:");
         ui.add_space(8.0);
-        let params = ConnectParams::new(ip.clone(), DEFAULT_STREAM_PORT, session.to_string(), game.metadata.title.clone());
+        let params = ConnectParams::new(ip.clone(), DEFAULT_STREAM_PORT, session.to_string(), game.metadata.title.clone(), DEFAULT_HANDSHAKE_PORT);
         let url = params.to_url();
 
         match QrCode::new(url.as_bytes()) {

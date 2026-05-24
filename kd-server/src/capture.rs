@@ -1,9 +1,7 @@
-use std::collections::VecDeque;
-use std::sync::Mutex;
-use crate::capture::windows::DxgiCapturer;
-
 #[cfg(target_os = "windows")]
 mod windows;
+#[cfg(target_os = "macos")]
+mod mac;
 
 #[derive(Clone)]
 pub(crate) enum PixelFormat
@@ -38,5 +36,7 @@ pub trait FrameCapturer {
 
 pub fn create_capturer() -> anyhow::Result<Box<dyn FrameCapturer>> {
     #[cfg(target_os = "windows")]
-    Ok(Box::new(DxgiCapturer::new()?))
+    return Ok(Box::new(windows::DxgiCapturer::new()?));
+    #[cfg(target_os = "macos")]
+    return Ok(Box::new(mac::ScreenCaptureKitCapturer::new()?));
 }

@@ -15,7 +15,7 @@ rfd = "0.17.2"
 toml = "1.1.2+spec-1.1.0"
 uuid.workspace = true
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(target_os = "windows")'.dependencies]
 ffmpeg-next = { version = "8.1.0", default-features = false, features = [
     "codec",
     "format",
@@ -28,3 +28,12 @@ windows = { version = "0.62.2", features = [
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi"
 ]}
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-core-media = "0.3"
+objc2-core-video = "0.3"
+objc2-av-foundation = "0.3"
+objc2-screen-capture-kit = "0.3"
+block2 = "0.6"

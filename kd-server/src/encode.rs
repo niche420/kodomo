@@ -1,10 +1,10 @@
 #[cfg(target_os = "windows")]
 mod windows;
+#[cfg(target_os = "macos")]
+mod mac;
 
-use ffmpeg_next::codec::traits::Encoder;
 use serde::{Deserialize, Serialize};
 use crate::capture::Frame;
-use crate::encode::windows::FfmpegEncoder;
 
 pub trait FrameEncoder
 {
@@ -20,5 +20,8 @@ pub struct EncodeConfig {
 
 pub fn create_encoder(config: &EncodeConfig) -> anyhow::Result<Box<dyn FrameEncoder>> {
     #[cfg(target_os = "windows")]
-    Ok(Box::new(FfmpegEncoder::new(config.width, config.height, config.fps)?))
+    return Ok(Box::new(windows::FfmpegEncoder::new(config.width, config.height, config.fps)?));
+
+    #[cfg(target_os = "macos")]
+    Ok(Box::new(mac::VideoToolboxEncoder::new(config.width, config.height, config.fps)?))
 }

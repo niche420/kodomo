@@ -12,6 +12,7 @@ use crate::capture::{Frame, FrameCapturer};
 use crate::encode::{EncodeConfig, FrameEncoder};
 use crate::network::NetworkConfig;
 
+#[derive(Default)]
 struct FrameSlot(Mutex<Option<Frame>>);
 
 impl FrameSlot {
@@ -28,6 +29,7 @@ impl FrameSlot {
     }
 }
 
+#[derive(Default)]
 struct PacketQueue
 {
     queue: Mutex<VecDeque<RtpPacket>>,
@@ -68,6 +70,7 @@ pub struct PipelineConfig {
     network: NetworkConfig,
 }
 
+#[derive(Default)]
 pub struct Pipeline {
     frame_slot: Arc<FrameSlot>,
     packet_queue: Arc<PacketQueue>,

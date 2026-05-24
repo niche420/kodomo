@@ -6,12 +6,13 @@ pub struct ConnectParams
     ip: String,
     port: u16,
     session: String,
-    game: String
+    game: String,
+    handshake_port: u16,
 }
 
 impl ConnectParams {
-    pub fn new(ip: String, port: u16, session: String, game: String) -> Self {
-        Self { ip, port, session, game }
+    pub fn new(ip: String, port: u16, session: String, game: String, handshake_port: u16) -> Self {
+        Self { ip, port, session, game, handshake_port }
     }
 
     /// Encodes as a kodomo:// deep link for the client QR scanner

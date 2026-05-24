@@ -12,3 +12,4 @@ cbindgen = "0.29.2"
 
 [dependencies]
 kd-shared.path = "../kd-shared"
+libc = "1.0.0-alpha.3"

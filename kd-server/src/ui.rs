@@ -6,12 +6,10 @@ use std::cell::RefCell;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::rc::Rc;
-use eframe::Frame;
-use egui::Context;
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
-use kd_shared::connect::ConnectParams;
 use kd_shared::game::{GameMetadata};
-use crate::pipeline::PipelineConfig;
+use crate::pipeline::{Pipeline, PipelineConfig};
 use crate::ui::connect::ConnectScreen;
 use crate::ui::home::HomeScreen;
 use crate::ui::screen::{Screen, ScreenType};
@@ -32,6 +30,8 @@ pub struct AppState {
     #[serde(skip)]
     pub selected_game: Option<String>,
     pub config: PipelineConfig,
+    #[serde(skip)]
+    pub pipeline: Arc<Pipeline>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -59,6 +59,7 @@ impl ServerApp {
             AppState {
                 games,
                 screen: ScreenType::Home,
+                pipeline: Arc::new(Pipeline::new()),
                 ..Default::default()
             }
         };

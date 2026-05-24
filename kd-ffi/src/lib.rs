@@ -1,3 +1,4 @@
+use libc::c_char;
 use kd_shared::rtp::packetizer::Depacketizer;
 use kd_shared::rtp::RtpPacket;
 

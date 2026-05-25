@@ -4,9 +4,12 @@ use serde::{Deserialize, Serialize};
 pub enum ScreenType {
     #[default]
     Home,
-    Connect
+    Connect,
+    Session
 }
 
 pub trait Screen {
+    fn on_show(&mut self) {}
     fn render(&mut self, ui: &mut egui::Ui);
+    fn get_type(&self) -> ScreenType;
 }

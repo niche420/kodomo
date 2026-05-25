@@ -1,11 +1,14 @@
 use std::cell::RefCell;
 use std::net::UdpSocket;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use eframe::emath::{Pos2, Rect, Vec2};
 use egui::{Color32, Sense, Ui};
 use qrcode::QrCode;
 use uuid::Uuid;
 use kd_shared::connect::ConnectParams;
+use crate::network::HandshakeListener;
 use crate::ui::AppState;
 use crate::ui::screen::{Screen, ScreenType};
 
@@ -13,25 +16,56 @@ const DEFAULT_STREAM_PORT: u16 = 5000;
 const DEFAULT_HANDSHAKE_PORT: u16 = 6000;
 
 pub struct ConnectScreen {
-    state: Rc<RefCell<AppState>>
+    state: Rc<RefCell<AppState>>,
+    connected: Arc<AtomicBool>,
+    client_ip: Arc<Mutex<Option<String>>>
 }
 
 impl ConnectScreen {
     pub fn new(state: Rc<RefCell<AppState>>) -> ConnectScreen {
         Self {
-            state
+            state,
+            connected: Arc::new(AtomicBool::new(false)),
+            client_ip: Arc::new(Mutex::new(None)),
         }
     }
 }
 
 impl Screen for ConnectScreen {
+    fn get_type(&self) -> ScreenType {
+        ScreenType::Connect
+    }
+
+    fn on_show(&mut self) {
+        let session = Uuid::new_v4().to_string();
+        self.state.borrow_mut().session = Some(session.clone());
+        let handshake_port = self.state.borrow().config.network.handshake_port;
+        let connected = self.connected.clone();
+        let client_ip = self.client_ip.clone();
+
+        std::thread::spawn(move || {
+            let listener = HandshakeListener::new(handshake_port, session);
+            if let Ok(ip) = listener.listen() {
+                *client_ip.lock().unwrap() = Some(ip.to_string());
+                connected.store(true, Ordering::SeqCst);
+            }
+        });
+    }
+
     fn render(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            if ui.button("← Back").clicked() {
-                self.state.borrow_mut().screen = ScreenType::Home;
+            if ui.button("<- Back").clicked() {
+                self.state.borrow_mut().transition_to(ScreenType::Home);
             }
             ui.heading("Connect");
         });
+
+        if self.connected.load(Ordering::SeqCst) {
+            if let Some(ip) = self.client_ip.lock().unwrap().clone() {
+                self.state.borrow_mut().config.network.dest_ip = ip;
+            }
+            self.state.borrow_mut().transition_to(ScreenType::Session);
+        }
 
         ui.separator();
 
@@ -41,7 +75,7 @@ impl Screen for ConnectScreen {
         let game = state.games.iter().find(|g| g.metadata.title == state.selected_game.clone().unwrap_or(String::new())).unwrap();
         ui.label(format!("Game:    {}", game.metadata.title));
         ui.label(format!("Address: {}:{}", ip, DEFAULT_STREAM_PORT));
-        let session = Uuid::new_v4().to_string();
+        let session = state.session.as_ref().unwrap();
         ui.label(format!("Session: {}", &session[..8])); // show prefix only
 
         ui.add_space(16.0);

@@ -19,6 +19,7 @@ impl ConnectParams {
     pub fn to_url(&self) -> String {
         // Minimal percent-encoding for game title
         let game = self.game.replace('%', "%25").replace(' ', "%20").replace('&', "%26");
-        format!("kodomo://{}:{}?session={}&game={}", self.ip, self.port, self.session, game)
+        format!("kodomo://{}:{}?session={}&game={}&handshake_port={}",
+                self.ip, self.port, self.session, game, self.handshake_port)
     }
 }

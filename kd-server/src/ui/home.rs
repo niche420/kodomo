@@ -3,6 +3,7 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::rc::Rc;
 use egui::TextureOptions;
+use uuid::Uuid;
 use kd_shared::game::GameMetadata;
 use crate::ui::{AppState, Game};
 use crate::ui::screen::{Screen, ScreenType};
@@ -20,6 +21,10 @@ impl HomeScreen {
 }
 
 impl Screen for HomeScreen {
+    fn get_type(&self) -> ScreenType {
+        ScreenType::Home
+    }
+
     fn render(&mut self, ui: &mut egui::Ui) {
         if ui.button("Add Game").clicked() {
             if let Some(path) = rfd::FileDialog::new()
@@ -41,7 +46,7 @@ impl Screen for HomeScreen {
             let state = self.state.borrow();
             state.games.to_vec()
         };
-
+        
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.heading("Active Games");
             {
@@ -72,7 +77,7 @@ fn show_games(mut state: RefMut<AppState>, games: Vec<&Game>, ui: &mut egui::Ui)
             }
             if ui.selectable_label(false, &game.metadata.title).clicked() {
                 state.selected_game = Some(game.metadata.title.clone());
-                state.screen = ScreenType::Connect;
+                state.transition_to(ScreenType::Connect);
             }
         });
     }

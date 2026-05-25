@@ -64,10 +64,10 @@ impl PacketQueue {
     }
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct PipelineConfig {
-    encode: EncodeConfig,
-    network: NetworkConfig,
+    pub encode: EncodeConfig,
+    pub network: NetworkConfig,
 }
 
 #[derive(Default)]

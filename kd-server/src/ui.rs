@@ -1,18 +1,22 @@
 mod home;
 mod connect;
 mod screen;
+mod session;
 
 use std::cell::RefCell;
+use std::cmp::PartialEq;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+use eframe::App;
 use serde::{Deserialize, Serialize};
 use kd_shared::game::{GameMetadata};
 use crate::pipeline::{Pipeline, PipelineConfig};
 use crate::ui::connect::ConnectScreen;
 use crate::ui::home::HomeScreen;
 use crate::ui::screen::{Screen, ScreenType};
+use crate::ui::session::SessionScreen;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Game {
@@ -25,20 +29,35 @@ pub struct Game {
 #[derive(Serialize, Deserialize, Default)]
 pub struct AppState {
     pub games: Vec<Game>,
-    #[serde(skip)]
-    pub screen: ScreenType,
+    pub config: PipelineConfig,
+
     #[serde(skip)]
     pub selected_game: Option<String>,
-    pub config: PipelineConfig,
     #[serde(skip)]
-    pub pipeline: Arc<Pipeline>,
+    session: Option<String>,
+    #[serde(skip)]
+    pipeline: Pipeline,
+    #[serde(skip)]
+    current_screen: ScreenType
 }
 
-#[derive(Serialize, Deserialize, Default)]
+impl AppState {
+    pub fn transition_to(&mut self, screen: ScreenType) {
+        self.current_screen = screen;
+    }
+    
+    pub fn start_session(&mut self) -> anyhow::Result<()> {
+        self.pipeline.start(self.config.clone())
+    }
+    
+    pub fn end_session(&mut self) {
+        self.pipeline.stop();
+    }
+}
+
 pub struct ServerApp {
     state: Rc<RefCell<AppState>>,
-    #[serde(skip)]
-    screens: Vec<Box<dyn Screen>>
+    current_screen: Box<dyn Screen>,
 }
 
 impl ServerApp {
@@ -58,28 +77,45 @@ impl ServerApp {
 
             AppState {
                 games,
-                screen: ScreenType::Home,
-                pipeline: Arc::new(Pipeline::new()),
-                ..Default::default()
+                session: None,
+                selected_game: None,
+                pipeline: Pipeline::new(),
+                current_screen: ScreenType::Home,
+                config: Default::default()
             }
         };
         let rc_state = Rc::new(RefCell::new(state));
 
         Self {
             state: rc_state.clone(),
-            screens: vec![
-                Box::new(HomeScreen::new(rc_state.clone())),
-                Box::new(ConnectScreen::new(rc_state))
-            ]
+            current_screen: Self::make_screen(rc_state, ScreenType::Home)
         }
+    }
+
+    fn make_screen(state: Rc<RefCell<AppState>>, screen: ScreenType) -> Box<dyn Screen> {
+        match screen {
+            ScreenType::Home => Box::new(HomeScreen::new(state)),
+            ScreenType::Connect => Box::new(ConnectScreen::new(state)),
+            ScreenType::Session => Box::new(SessionScreen::new(state)),
+        }
+    }
+}
+
+impl PartialEq for ScreenType {
+    fn eq(&self, other: &Self) -> bool {
+        todo!()
     }
 }
 
 impl eframe::App for ServerApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            let screen_idx = self.state.borrow().screen.clone() as usize;
-            self.screens[screen_idx].render(ui);
+            let desired = self.state.borrow().current_screen.clone();
+            if desired != self.current_screen.get_type() {
+                self.current_screen = Self::make_screen(self.state.clone(), desired);
+                self.current_screen.on_show();
+            }
+            self.current_screen.render(ui);
         });
     }
 

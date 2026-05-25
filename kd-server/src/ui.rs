@@ -81,7 +81,7 @@ impl ServerApp {
                 selected_game: None,
                 pipeline: Pipeline::new(),
                 current_screen: ScreenType::Home,
-                config: Default::default()
+                config: PipelineConfig::default()
             }
         };
         let rc_state = Rc::new(RefCell::new(state));
@@ -98,12 +98,6 @@ impl ServerApp {
             ScreenType::Connect => Box::new(ConnectScreen::new(state)),
             ScreenType::Session => Box::new(SessionScreen::new(state)),
         }
-    }
-}
-
-impl PartialEq for ScreenType {
-    fn eq(&self, other: &Self) -> bool {
-        todo!()
     }
 }
 

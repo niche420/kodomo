@@ -31,12 +31,12 @@ impl Frame
 }
 
 pub trait FrameCapturer {
-    fn capture_frame(&mut self) -> anyhow::Result<Frame>;
+    fn capture_frame(&mut self) -> Option<Frame>;
 }
 
 pub fn create_capturer() -> anyhow::Result<Box<dyn FrameCapturer>> {
     #[cfg(target_os = "windows")]
-    return Ok(Box::new(windows::DxgiCapturer::new()?));
+    return Ok(Box::new(windows::WindowsGraphicsCapturer::new()?));
     #[cfg(target_os = "macos")]
     return Ok(Box::new(mac::ScreenCaptureKitCapturer::new()?));
 }

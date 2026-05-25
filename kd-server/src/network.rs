@@ -1,12 +1,22 @@
 use std::io::{BufRead, BufReader, Write};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct NetworkConfig {
     pub dest_ip: String,
     pub video_port: u16,
     pub handshake_port: u16,
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            dest_ip: String::new(),
+            video_port: 5000,
+            handshake_port: 6000,
+        }
+    }
 }
 
 pub struct HandshakeListener {
@@ -22,7 +32,7 @@ impl HandshakeListener {
         }
     }
 
-    pub fn listen(&self) -> anyhow::Result<SocketAddr> {
+    pub fn listen(&self) -> anyhow::Result<IpAddr> {
         let listener = std::net::TcpListener::bind(
             format!("0.0.0.0:{}", self.port))?;
         let (mut stream, addr) = listener.accept()?;
@@ -35,7 +45,7 @@ impl HandshakeListener {
         } else {
             stream.write_all(b"err\n")?;
         }
-
-        Ok(addr)
+        
+        Ok(addr.ip())
     }
 }

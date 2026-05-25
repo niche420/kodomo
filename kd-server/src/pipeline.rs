@@ -132,8 +132,8 @@ fn capture_thread(slot: Arc<FrameSlot>, stopped: Arc<AtomicBool>) {
     
     while !stopped.load(Ordering::SeqCst) {
         match capturer.capture_frame() {
-            Ok(frame) => slot.write(frame),
-            Err(e) => eprintln!("Capture error: {e}"),
+            Some(frame) => slot.write(frame),
+            None => {},
         }
     }
 }

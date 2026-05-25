@@ -12,9 +12,6 @@ use crate::network::HandshakeListener;
 use crate::ui::AppState;
 use crate::ui::screen::{Screen, ScreenType};
 
-const DEFAULT_STREAM_PORT: u16 = 5000;
-const DEFAULT_HANDSHAKE_PORT: u16 = 6000;
-
 pub struct ConnectScreen {
     state: Rc<RefCell<AppState>>,
     connected: Arc<AtomicBool>,
@@ -74,14 +71,15 @@ impl Screen for ConnectScreen {
         let state = self.state.borrow();
         let game = state.games.iter().find(|g| g.metadata.title == state.selected_game.clone().unwrap_or(String::new())).unwrap();
         ui.label(format!("Game:    {}", game.metadata.title));
-        ui.label(format!("Address: {}:{}", ip, DEFAULT_STREAM_PORT));
+        ui.label(format!("Address: {}:{}", ip, state.config.network.video_port));
         let session = state.session.as_ref().unwrap();
         ui.label(format!("Session: {}", &session[..8])); // show prefix only
 
         ui.add_space(16.0);
         ui.label("Scan with Kodomo on your iPhone:");
         ui.add_space(8.0);
-        let params = ConnectParams::new(ip.clone(), DEFAULT_STREAM_PORT, session.to_string(), game.metadata.title.clone(), DEFAULT_HANDSHAKE_PORT);
+        let params = ConnectParams::new(ip.clone(), state.config.network.video_port, session.to_string(),
+                                        game.metadata.title.clone(), state.config.network.handshake_port);
         let url = params.to_url();
 
         match QrCode::new(url.as_bytes()) {

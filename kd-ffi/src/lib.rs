@@ -1,3 +1,4 @@
+use std::ptr::{null, null_mut};
 use libc::c_char;
 use kd_shared::rtp::packetizer::Depacketizer;
 use kd_shared::rtp::RtpPacket;
@@ -25,21 +26,32 @@ unsafe extern "C" fn kd_depacketizer_push(raw: *mut Depacketizer, data: *const u
     let tizer = &mut *raw;
     let packet_data = std::slice::from_raw_parts(data, len);
     let packet = RtpPacket::decode(packet_data).unwrap();
-    let nals = tizer.push(&packet).unwrap().unwrap();
-    let count = nals.len();
-    let mut nal_ptrs = Vec::with_capacity(count);
-    let mut lengths = Vec::with_capacity(count);
-    nals.into_iter().for_each(|nal| {
-        let length = nal.len();
-        lengths.push(length);
-        let ptr = Box::leak(nal.into_boxed_slice());
-        nal_ptrs.push(ptr.as_ptr());
-    });
+    let nals = tizer.push(&packet).unwrap();
+    match nals {
+        Some(nals) => {
+            let count = nals.len();
+            let mut nal_ptrs = Vec::with_capacity(count);
+            let mut lengths = Vec::with_capacity(count);
+            nals.into_iter().for_each(|nal| {
+                let length = nal.len();
+                lengths.push(length);
+                let ptr = Box::leak(nal.into_boxed_slice());
+                nal_ptrs.push(ptr.as_ptr());
+            });
 
-    KdNalUnits {
-        data: Box::leak(nal_ptrs.into_boxed_slice()).as_mut_ptr(),
-        lengths: Box::leak(lengths.into_boxed_slice()).as_mut_ptr(),
-        count
+            KdNalUnits {
+                data: Box::leak(nal_ptrs.into_boxed_slice()).as_mut_ptr(),
+                lengths: Box::leak(lengths.into_boxed_slice()).as_mut_ptr(),
+                count
+            }
+        },
+        None => {
+            KdNalUnits {
+                data: null_mut(),
+                lengths: null_mut(),
+                count: 0
+            }
+        }
     }
 }
 

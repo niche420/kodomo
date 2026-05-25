@@ -29,10 +29,6 @@ impl ConnectScreen {
 }
 
 impl Screen for ConnectScreen {
-    fn get_type(&self) -> ScreenType {
-        ScreenType::Connect
-    }
-
     fn on_show(&mut self) {
         let session = Uuid::new_v4().to_string();
         self.state.borrow_mut().session = Some(session.clone());
@@ -93,6 +89,10 @@ impl Screen for ConnectScreen {
                 ui.colored_label(Color32::RED, format!("QR error: {e}"));
             }
         }
+    }
+
+    fn get_type(&self) -> ScreenType {
+        ScreenType::Connect
     }
 }
 

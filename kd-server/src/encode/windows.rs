@@ -87,7 +87,7 @@ impl FrameEncoder for FfmpegEncoder
                 Ok(_) => {
                     let data = packet.data();
                     match data {
-                        Some(mut annex_b) => {
+                        Some(annex_b) => {
                             nals.extend(parse_nals_from_annex_b(annex_b));
                         },
                         None => {}

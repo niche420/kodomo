@@ -104,11 +104,16 @@ impl Depacketizer
 
     pub fn push(&mut self, packet: RtpPacket) -> Result<Option<Vec<Vec<u8>>>>
     {
+        eprintln!("Inserting seq={}, expected={}, buffer_size={}",
+                  packet.header.sequence_number,
+                  self.expected_sequence_number,
+                  self.reorder_buffer.len());
+
         if !self.initialized {
             self.expected_sequence_number = packet.header.sequence_number;
             self.initialized = true;
         }
-        
+
         self.reorder_buffer.insert(packet.header.sequence_number, packet);
 
         let mut all_nals = vec![];
@@ -117,9 +122,8 @@ impl Depacketizer
             self.process_packet(packet, &mut all_nals)?;
         }
 
-        if self.reorder_buffer.len() > 64 {
+        if self.reorder_buffer.len() > 8 {
             self.expected_sequence_number = *self.reorder_buffer.keys().next().unwrap();
-            self.reorder_buffer.clear();
             self.fu_a_buffer.clear();
             self.is_assembling = false;
         }

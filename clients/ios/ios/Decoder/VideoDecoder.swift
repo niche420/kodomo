@@ -37,6 +37,8 @@ class VideoDecoder {
                             return
                         }
                         self.decompressionSession = decompressionSession
+                        self.sps = nil
+                        self.pps = nil
                     }
                 }
                 break
@@ -90,6 +92,10 @@ class VideoDecoder {
         
         if let sampleBuffer = sampleBuffer, let session = decompressionSession {
             VTDecompressionSessionDecodeFrame(session, sampleBuffer: sampleBuffer, flags: ._1xRealTimePlayback, infoFlagsOut: nil, outputHandler: { status, _, imageBuffer, _, _ in
+                if status != noErr {
+                        print("Decode error: \(status)")
+                        return
+                    }
                 if let imageBuffer = imageBuffer {
                     self.onFrameDecoded?(imageBuffer)
                 }

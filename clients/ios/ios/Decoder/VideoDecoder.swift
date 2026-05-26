@@ -11,6 +11,7 @@ class VideoDecoder {
         for nal in nalUnits {
             guard let firstByte = nal.first else { continue }
             let nalType = firstByte & 0x1F
+            print("NAL type: \(nalType), size: \(nal.count)")
             switch nalType {
             case 7: // SPS
                 sps = nal
@@ -30,7 +31,11 @@ class VideoDecoder {
                         self.formatDescription = desc
                         
                         var decompressionSession: VTDecompressionSession?
-                        VTDecompressionSessionCreate(allocator: kCFAllocatorDefault, formatDescription: desc!, decoderSpecification: nil, imageBufferAttributes: nil, decompressionSessionOut: &decompressionSession)
+                        let status = VTDecompressionSessionCreate(allocator: kCFAllocatorDefault, formatDescription: desc!, decoderSpecification: nil, imageBufferAttributes: nil, decompressionSessionOut: &decompressionSession)
+                        guard status == noErr else {
+                            print("Failed to create decompression session")
+                            return
+                        }
                         self.decompressionSession = decompressionSession
                     }
                 }

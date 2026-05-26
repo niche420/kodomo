@@ -26,7 +26,7 @@ unsafe extern "C" fn kd_depacketizer_push(raw: *mut Depacketizer, data: *const u
     let tizer = &mut *raw;
     let packet_data = std::slice::from_raw_parts(data, len);
     let packet = RtpPacket::decode(packet_data).unwrap();
-    let nals = tizer.push(&packet).unwrap();
+    let nals = tizer.push(packet).unwrap();
     match nals {
         Some(nals) => {
             let count = nals.len();

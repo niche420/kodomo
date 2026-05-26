@@ -16,7 +16,9 @@ struct StreamView: View {
                     renderer.currentPixelBuffer = pixelBuffer
                 }
                 receiver.onPacketReceived = { data in
+                    print("Raw packet received: \(data.count) bytes")
                     let nals = depacketizer.push(data)
+                    print("Received \(nals.count) NALs")
                     if !nals.isEmpty {
                         decoder.decode(nalUnits: nals)
                     }

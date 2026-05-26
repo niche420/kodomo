@@ -15,7 +15,7 @@ impl ScreenCaptureKitCapturer {
 }
 
 impl FrameCapturer for ScreenCaptureKitCapturer {
-    fn capture_frame(&mut self) -> anyhow::Result<Frame> {
+    fn capture_frame(&mut self) -> Option<Frame> {
         todo!()
     }
 }

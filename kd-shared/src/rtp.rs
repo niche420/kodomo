@@ -19,7 +19,7 @@ pub enum RtpError
     UnexpectedSequenceNumber(u16, u16),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct RtpHeader
 {
     marker: bool,
@@ -75,7 +75,7 @@ impl RtpHeader
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct RtpPacket
 {
     header: RtpHeader,

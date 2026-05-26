@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ops::Add;
 use crate::rtp::{RtpError, RtpHeader, RtpPacket, RtpPayload, NAL_TYPE_FU_A, NAL_TYPE_STAP_A};
 use crate::error::{KdError, Result};
@@ -84,7 +85,9 @@ pub struct Depacketizer
 {
     fu_a_buffer: Vec<u8>,
     is_assembling: bool,
-    expected_sequence_number: u16
+    expected_sequence_number: u16,
+    reorder_buffer: BTreeMap<u16, RtpPacket>,
+    initialized: bool,
 }
 
 impl Depacketizer
@@ -93,29 +96,49 @@ impl Depacketizer
         Self {
             fu_a_buffer: vec![],
             is_assembling: false,
-            expected_sequence_number: 0
+            expected_sequence_number: 0,
+            reorder_buffer: BTreeMap::new(),
+            initialized: false,
         }
     }
 
-    pub fn push(&mut self, packet: &RtpPacket) -> Result<Option<Vec<Vec<u8>>>>
+    pub fn push(&mut self, packet: RtpPacket) -> Result<Option<Vec<Vec<u8>>>>
+    {
+        if !self.initialized {
+            self.expected_sequence_number = packet.header.sequence_number;
+            self.initialized = true;
+        }
+        
+        self.reorder_buffer.insert(packet.header.sequence_number, packet);
+
+        let mut all_nals = vec![];
+        while let Some(packet) = self.reorder_buffer.remove(&self.expected_sequence_number) {
+            self.expected_sequence_number = self.expected_sequence_number.wrapping_add(1);
+            self.process_packet(packet, &mut all_nals)?;
+        }
+
+        if self.reorder_buffer.len() > 64 {
+            self.expected_sequence_number = *self.reorder_buffer.keys().next().unwrap();
+            self.reorder_buffer.clear();
+            self.fu_a_buffer.clear();
+            self.is_assembling = false;
+        }
+
+        if all_nals.is_empty() { Ok(None) } else { Ok(Some(all_nals)) }
+    }
+
+    fn process_packet(&mut self, packet: RtpPacket, all_nals: &mut Vec<Vec<u8>>) -> Result<()>
     {
         let payload = packet.parse()?;
         match payload
         {
             RtpPayload::SingleNal { nal } => {
-                Ok(Some(vec![nal]))
+                all_nals.push(nal);
             },
             RtpPayload::StapA { nals } => {
-                Ok(Some(nals))
+                all_nals.extend(nals);
             },
             RtpPayload::FuA(payload) => {
-                if self.is_assembling && self.expected_sequence_number != packet.header.sequence_number {
-                    return Err(KdError::from(RtpError::UnexpectedSequenceNumber(
-                        self.expected_sequence_number, packet.header.sequence_number)));
-                }
-
-                self.expected_sequence_number = self.expected_sequence_number.wrapping_add(1);
-
                 if payload.start() {
                     self.fu_a_buffer.clear();
                     self.is_assembling = true;
@@ -125,15 +148,15 @@ impl Depacketizer
                 else if payload.end() {
                     self.fu_a_buffer.extend(payload.fragment);
                     self.is_assembling = false;
-                    return Ok(Some(vec![self.fu_a_buffer.clone()]));
+                    all_nals.push(self.fu_a_buffer.clone());
                 }
                 else {
                     self.fu_a_buffer.extend(payload.fragment);
                 }
-
-                Ok(None)
             }
         }
+
+        Ok(())
     }
 }
 
@@ -308,7 +331,7 @@ impl Depacketizer
         let mut depacketizer = Depacketizer::new();
         let nal = vec![0xFF; 8];
         let packets = packetizer.packetize_single_nal(&nal, 21, false);
-        let nals = depacketizer.push(packets.first().unwrap()).unwrap();
+        let nals = depacketizer.push(packets[0].clone()).unwrap();
         assert_eq!(nals, Some(vec![nal]));
     }
 
@@ -319,9 +342,9 @@ impl Depacketizer
         let mut depacketizer = Depacketizer::new();
         let nal = vec![0xFF; 8];
         let packets = packetizer.packetize_fu_a(&nal, 21, false);
-        let mut nals = depacketizer.push(&packets[0]).unwrap();
+        let mut nals = depacketizer.push(packets[0].clone()).unwrap();
         assert_eq!(nals, None);
-        nals = depacketizer.push(&packets[1]).unwrap();
+        nals = depacketizer.push(packets[1].clone()).unwrap();
         assert_eq!(nals, Some(vec![nal]));
     }
 
@@ -333,7 +356,7 @@ impl Depacketizer
         let nal1 = vec![0xFF; 4];
         let nal2 = vec![0xCF; 4];
         let packet = packetizer.packetize_stap_a(&[&nal1, &nal2], 21);
-        let mut nals = depacketizer.push(&packet).unwrap();
+        let mut nals = depacketizer.push(packet).unwrap();
         assert_eq!(nals, Some(vec![nal1, nal2]));
     }
 
@@ -344,10 +367,10 @@ impl Depacketizer
         let mut depacketizer = Depacketizer::new();
         let nal = vec![0xFF; 8];
         let mut packets = packetizer.packetize_fu_a(&nal, 21, false);
-        let nals = depacketizer.push(&packets[0]).unwrap();
+        let nals = depacketizer.push(packets[0].clone()).unwrap();
         assert_eq!(nals, None);
         packets[1].header.sequence_number = 0xFF;
-        let corrupted = depacketizer.push(&packets[1]);
-        assert_eq!(corrupted, Err(KdError::from(RtpError::UnexpectedSequenceNumber(1, 0xFF))));
+        let corrupted = depacketizer.push(packets[1].clone());
+        assert_eq!(corrupted, Ok(None));
     }
 }

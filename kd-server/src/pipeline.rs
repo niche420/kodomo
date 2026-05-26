@@ -55,12 +55,12 @@ impl PacketQueue {
         self.has_packet.notify_one();
     }
 
-    pub fn pop(&self) -> RtpPacket {
+    pub fn pop(&self, stopped: &AtomicBool) -> Option<RtpPacket> {
         let mut queue = &mut *self.has_packet.wait_while(
             self.queue.lock().unwrap(),
-            |q| q.is_empty()
+            |q| q.is_empty() && !stopped.load(Ordering::SeqCst)
         ).unwrap();
-        queue.pop_front().unwrap()
+        queue.pop_front()
     }
 }
 
@@ -108,6 +108,7 @@ impl Pipeline {
 
     pub fn stop(&mut self) {
         self.stopped.store(true, Ordering::SeqCst);
+        self.packet_queue.has_packet.notify_all();
         self.threads.drain(..).for_each(|t| t.join().unwrap());
     }
 
@@ -197,10 +198,11 @@ fn network_thread(config: &NetworkConfig, queue: Arc<PacketQueue>, stopped: Arc<
     let dest = SocketAddr::new(dest_ip, config.video_port);
 
     while !stopped.load(Ordering::SeqCst) {
-        let packet = queue.pop();
-        match socket.send_to(&packet.encode(), dest) {
-            Ok(_) => {},
-            Err(e) => eprintln!("Network error: {e}")
+        let Some(packet) = queue.pop(&stopped) else {
+            break;
+        };
+        if let Err(e) = socket.send_to(&packet.encode(), dest) {
+            eprintln!("Network error: {e}");
         }
     }
 }

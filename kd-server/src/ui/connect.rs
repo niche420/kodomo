@@ -9,7 +9,7 @@ use qrcode::QrCode;
 use uuid::Uuid;
 use kd_shared::connect::ConnectParams;
 use crate::network::HandshakeListener;
-use crate::ui::AppState;
+use crate::ui::{AppEvent, AppState};
 use crate::ui::screen::{Screen, ScreenType};
 
 pub struct ConnectScreen {
@@ -32,15 +32,16 @@ impl Screen for ConnectScreen {
     fn on_show(&mut self) {
         let session = Uuid::new_v4().to_string();
         self.state.borrow_mut().session = Some(session.clone());
-        let handshake_port = self.state.borrow().config.network.handshake_port;
+        let handshake_port = self.state.borrow().persistent.config.network.handshake_port;
         let connected = self.connected.clone();
         let client_ip = self.client_ip.clone();
-
+        let ctx = self.state.borrow().ctx.clone();
         std::thread::spawn(move || {
             let listener = HandshakeListener::new(handshake_port, session);
             if let Ok(ip) = listener.listen() {
                 *client_ip.lock().unwrap() = Some(ip.to_string());
                 connected.store(true, Ordering::SeqCst);
+                ctx.request_repaint();
             }
         });
     }
@@ -48,16 +49,16 @@ impl Screen for ConnectScreen {
     fn render(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             if ui.button("<- Back").clicked() {
-                self.state.borrow_mut().transition_to(ScreenType::Home);
+                self.state.borrow_mut().push_event(AppEvent::ScreenTransition(ScreenType::Home));
             }
             ui.heading("Connect");
         });
 
         if self.connected.load(Ordering::SeqCst) {
             if let Some(ip) = self.client_ip.lock().unwrap().clone() {
-                self.state.borrow_mut().config.network.dest_ip = ip;
+                self.state.borrow_mut().persistent.config.network.dest_ip = ip;
             }
-            self.state.borrow_mut().transition_to(ScreenType::Session);
+            self.state.borrow_mut().push_event(AppEvent::ScreenTransition(ScreenType::Session));
         }
 
         ui.separator();
@@ -65,17 +66,17 @@ impl Screen for ConnectScreen {
         let ip = get_lan_ip().unwrap_or_else(|| "127.0.0.1".to_string());
 
         let state = self.state.borrow();
-        let game = state.games.iter().find(|g| g.metadata.title == state.selected_game.clone().unwrap_or(String::new())).unwrap();
+        let game = state.persistent.games.iter().find(|g| g.metadata.title == state.selected_game.clone().unwrap_or(String::new())).unwrap();
         ui.label(format!("Game:    {}", game.metadata.title));
-        ui.label(format!("Address: {}:{}", ip, state.config.network.video_port));
+        ui.label(format!("Address: {}:{}", ip, state.persistent.config.network.video_port));
         let session = state.session.as_ref().unwrap();
         ui.label(format!("Session: {}", &session[..8])); // show prefix only
 
         ui.add_space(16.0);
         ui.label("Scan with Kodomo on your iPhone:");
         ui.add_space(8.0);
-        let params = ConnectParams::new(ip.clone(), state.config.network.video_port, session.to_string(),
-                                        game.metadata.title.clone(), state.config.network.handshake_port);
+        let params = ConnectParams::new(ip.clone(), state.persistent.config.network.video_port, session.to_string(),
+                                        game.metadata.title.clone(), state.persistent.config.network.handshake_port);
         let url = params.to_url();
 
         match QrCode::new(url.as_bytes()) {

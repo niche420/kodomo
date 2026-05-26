@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use egui::Ui;
-use crate::ui::AppState;
+use crate::ui::{AppEvent, AppState};
 use crate::ui::screen::{Screen, ScreenType};
 
 pub struct SessionScreen {
@@ -18,9 +18,7 @@ impl SessionScreen {
 
 impl Screen for SessionScreen {
     fn on_show(&mut self) {
-        if let Err(e) = self.state.borrow_mut().start_session() {
-            eprintln!("Pipeline error: {e}");
-        }
+        self.state.borrow_mut().push_event(AppEvent::PipelineStart);
     }
 
     fn render(&mut self, ui: &mut Ui) {
@@ -34,8 +32,8 @@ impl Screen for SessionScreen {
 
         drop(state); // release borrow before mutating
         if ui.button("Stop Streaming").clicked() {
-            self.state.borrow_mut().end_session();
-            self.state.borrow_mut().transition_to(ScreenType::Home);
+            self.state.borrow_mut().push_event(AppEvent::PipelineEnd);
+            self.state.borrow_mut().push_event(AppEvent::ScreenTransition(ScreenType::Home));
         }
     }
 

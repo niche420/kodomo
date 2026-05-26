@@ -5,6 +5,7 @@ mod session;
 
 use std::cell::RefCell;
 use std::cmp::PartialEq;
+use std::collections::VecDeque;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -18,6 +19,12 @@ use crate::ui::home::HomeScreen;
 use crate::ui::screen::{Screen, ScreenType};
 use crate::ui::session::SessionScreen;
 
+pub enum AppEvent {
+    ScreenTransition(ScreenType),
+    PipelineStart,
+    PipelineEnd,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Game {
     metadata: GameMetadata,
@@ -26,43 +33,42 @@ pub struct Game {
     is_running: bool
 }
 
-#[derive(Serialize, Deserialize, Default)]
 pub struct AppState {
-    pub games: Vec<Game>,
-    pub config: PipelineConfig,
-
-    #[serde(skip)]
+    persistent: PersistentState,
     pub selected_game: Option<String>,
-    #[serde(skip)]
     session: Option<String>,
-    #[serde(skip)]
-    pipeline: Pipeline,
-    #[serde(skip)]
-    current_screen: ScreenType
+    event_sender: crossbeam_channel::Sender<AppEvent>,
+    ctx: egui::Context,
+}
+
+#[derive(Serialize, Deserialize)]
+#[derive(Default)]
+pub struct PersistentState {
+    games: Vec<Game>,
+    config: PipelineConfig,
 }
 
 impl AppState {
-    pub fn transition_to(&mut self, screen: ScreenType) {
-        self.current_screen = screen;
-    }
-    
-    pub fn start_session(&mut self) -> anyhow::Result<()> {
-        self.pipeline.start(self.config.clone())
-    }
-    
-    pub fn end_session(&mut self) {
-        self.pipeline.stop();
+    pub fn push_event(&mut self, event: AppEvent) {
+        // We need a repaint to get the new screen to show up
+        if matches!(event, AppEvent::ScreenTransition(_)) {
+            self.ctx.request_repaint();
+        }
+        self.event_sender.send(event).unwrap();
     }
 }
 
 pub struct ServerApp {
     state: Rc<RefCell<AppState>>,
     current_screen: Box<dyn Screen>,
+    pipeline: Pipeline,
+    event_receiver: crossbeam_channel::Receiver<AppEvent>
 }
 
 impl ServerApp {
     pub(crate) fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let state = if let Some(storage) = cc.storage {
+        let (send, recv) = crossbeam_channel::unbounded();
+        let persistent = if let Some(storage) = cc.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
         } else {
             let mut games = Vec::new();
@@ -75,20 +81,26 @@ impl ServerApp {
                 is_running: true
             });
 
-            AppState {
+            PersistentState {
                 games,
-                session: None,
-                selected_game: None,
-                pipeline: Pipeline::new(),
-                current_screen: ScreenType::Home,
                 config: PipelineConfig::default()
             }
         };
-        let rc_state = Rc::new(RefCell::new(state));
+        let rc_state = Rc::new(RefCell::new(
+            AppState {
+                persistent,
+                session: None,
+                selected_game: None,
+                event_sender: send,
+                ctx: cc.egui_ctx.clone()
+            }
+        ));
 
         Self {
             state: rc_state.clone(),
-            current_screen: Self::make_screen(rc_state, ScreenType::Home)
+            current_screen: Self::make_screen(rc_state, ScreenType::Home),
+            pipeline: Pipeline::new(),
+            event_receiver: recv
         }
     }
 
@@ -99,21 +111,39 @@ impl ServerApp {
             ScreenType::Session => Box::new(SessionScreen::new(state)),
         }
     }
+
+    fn process_events(&mut self, ctx: &egui::Context) {
+        while let Ok(event) = self.event_receiver.try_recv() {
+            match event {
+                AppEvent::ScreenTransition(after) => {
+                    if after != self.current_screen.get_type() {
+                        self.current_screen = Self::make_screen(self.state.clone(), after);
+                        self.current_screen.on_show();
+                        ctx.request_repaint();
+                    }
+                },
+                AppEvent::PipelineStart => {
+                    let state = self.state.borrow();
+                    self.pipeline.start(state.persistent.config.clone());
+                },
+                AppEvent::PipelineEnd => {
+                    self.pipeline.stop();
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for ServerApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            let desired = self.state.borrow().current_screen.clone();
-            if desired != self.current_screen.get_type() {
-                self.current_screen = Self::make_screen(self.state.clone(), desired);
-                self.current_screen.on_show();
-            }
             self.current_screen.render(ui);
         });
+
+        self.process_events(ui.ctx());
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, eframe::APP_KEY, self.state.borrow().deref());
+        eframe::set_value(storage, eframe::APP_KEY, &self.state.borrow().persistent);
     }
 }

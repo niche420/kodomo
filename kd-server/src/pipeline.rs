@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Condvar, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
+use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use kd_shared::rtp::packetizer::Packetizer;
 use kd_shared::rtp::{NalType, RtpPacket};
@@ -155,6 +156,10 @@ fn encode_thread(config: &EncodeConfig, slot: Arc<FrameSlot>, queue: Arc<PacketQ
             Some(frame) => {
                 match encoder.encode_frame(frame) {
                     Ok(nals) => {
+                        for nal in &nals {
+                            eprintln!("NAL type: {}", nal[0] & 0x1F);
+                        }
+
                         let (sps_pps, rest): (Vec<_>, Vec<_>) = nals.iter().partition(|nal| {
                             matches!(NalType::from(nal[0]), NalType::Sps | NalType::Pps)
                         });

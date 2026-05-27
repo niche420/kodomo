@@ -36,7 +36,8 @@ impl HandshakeListener {
         let listener = std::net::TcpListener::bind(
             format!("0.0.0.0:{}", self.port))?;
         let (mut stream, addr) = listener.accept()?;
-        let mut reader = BufReader::new(&stream);
+        let reader_stream = stream.try_clone()?;
+        let mut reader = BufReader::new(reader_stream);
         let mut token = String::new();
         reader.read_line(&mut token)?;
         let token = token.trim();

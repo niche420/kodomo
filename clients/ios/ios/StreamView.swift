@@ -6,6 +6,7 @@ struct StreamView: View {
     private var depacketizer: Depacketizer
     private var decoder: VideoDecoder
     let renderer: MetalRenderer
+    let handshakeClient: HandshakeClient?
     
     var body: some View {
         MetalView(renderer: self.renderer)
@@ -24,26 +25,19 @@ struct StreamView: View {
                     }
                 }
                 receiver.start()
+                handshakeClient?.sendReady()
             }
             .onDisappear {
                 receiver.stop()
             }
     }
     
-    init(params: ConnectParams) {
+    init(params: ConnectParams, handshakeClient: HandshakeClient?) {
         self.params = params
+        self.handshakeClient = handshakeClient
         _receiver = StateObject(wrappedValue: UDPReceiver(port: params.port))
         depacketizer = Depacketizer()
         decoder = VideoDecoder()
         renderer = MetalRenderer()
     }
-}
-
-#Preview {
-    StreamView(params: ConnectParams(
-        ip: "127.0.0.1",
-        port: 5000,
-        session: "1234567890abcdef",
-        game: "Yakuza 3",
-    ))
 }

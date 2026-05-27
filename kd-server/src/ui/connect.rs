@@ -38,10 +38,13 @@ impl Screen for ConnectScreen {
         let ctx = self.state.borrow().ctx.clone();
         std::thread::spawn(move || {
             let listener = HandshakeListener::new(handshake_port, session);
-            if let Ok(ip) = listener.listen() {
-                *client_ip.lock().unwrap() = Some(ip.to_string());
-                connected.store(true, Ordering::SeqCst);
-                ctx.request_repaint();
+            loop {
+                if let Ok(ip) = listener.listen() {
+                    *client_ip.lock().unwrap() = Some(ip.to_string());
+                    connected.store(true, Ordering::SeqCst);
+                    ctx.request_repaint();
+                    break;
+                }
             }
         });
     }

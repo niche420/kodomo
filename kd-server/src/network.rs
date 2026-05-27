@@ -42,10 +42,15 @@ impl HandshakeListener {
         let token = token.trim();
         if token == self.expected_token {
             stream.write_all(b"ok\n")?;
+            let mut ready = String::new();
+            reader.read_line(&mut ready)?;
+            if ready.trim() == "ready" {
+                return Ok(addr.ip());
+            }
         } else {
             stream.write_all(b"err\n")?;
         }
-        
-        Ok(addr.ip())
+
+        Err(anyhow::Error::msg("Failed handshake"))
     }
 }

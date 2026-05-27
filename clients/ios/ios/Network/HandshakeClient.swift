@@ -7,6 +7,7 @@ class HandshakeClient {
     private let token: String
     var onConnected: (() -> Void)?
     var onFailed: (() -> Void)?
+    private var connection: NWConnection?
     
     init(host: String, port: UInt16, token: String) {
         self.host = host
@@ -20,7 +21,7 @@ class HandshakeClient {
             port: NWEndpoint.Port(rawValue: port)!,
             using: .tcp
         )
-        
+        self.connection = connection
         connection.stateUpdateHandler = { state in
             switch state {
             case .ready:
@@ -40,6 +41,11 @@ class HandshakeClient {
         }
         
         connection.start(queue: .global())
+    }
+    
+    func sendReady() {
+        let data = "ready\n".data(using: .utf8)!
+        connection?.send(content: data, completion: .idempotent)
     }
     
     private func receive(on connection: NWConnection) {

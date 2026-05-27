@@ -7,7 +7,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if let params = connectParams {
-                StreamView(params: params)
+                StreamView(params: params, handshakeClient: handshakeClient)
             } else {
                 WaitingView()
             }

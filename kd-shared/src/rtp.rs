@@ -73,6 +73,11 @@ impl RtpHeader
             ssrc: u32::from_be_bytes([data[8], data[9], data[10], data[11]]),
         })
     }
+
+    pub fn sequence_number(&self) -> u16
+    {
+        self.sequence_number
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -87,6 +92,11 @@ impl RtpPacket
     pub fn new(header: RtpHeader, payload: Vec<u8>) -> Self
     {
         Self { header, payload }
+    }
+
+    pub fn header(&self) -> RtpHeader
+    {
+        self.header.clone()
     }
 
     pub fn encode(&self) -> Vec<u8>

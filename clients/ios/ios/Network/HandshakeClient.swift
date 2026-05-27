@@ -59,7 +59,6 @@ class HandshakeClient {
             } else {
                 self.onFailed?()
             }
-            connection.cancel()
         }
     }
 }

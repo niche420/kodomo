@@ -5,6 +5,7 @@ import Combine
 class UDPReceiver: ObservableObject {
     private var listener: NWListener?
     var onPacketReceived: ((Data) -> Void)?
+    var onReady: (() -> Void)?
     
     init(port: UInt16) {
         let udpPort = NWEndpoint.Port(rawValue: port)!
@@ -16,6 +17,11 @@ class UDPReceiver: ObservableObject {
         listener?.newConnectionHandler = { [weak self] connection in
             connection.start(queue: .global())
             self?.receive(on: connection)
+        }
+        listener?.stateUpdateHandler = { state in
+            if case .ready = state {
+                self.onReady?()
+            }
         }
         listener?.start(queue: .global())
     }

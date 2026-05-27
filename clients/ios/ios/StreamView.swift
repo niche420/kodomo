@@ -24,8 +24,10 @@ struct StreamView: View {
                         decoder.decode(nalUnits: nals)
                     }
                 }
+                receiver.onReady = {
+                    handshakeClient?.sendReady()
+                }
                 receiver.start()
-                handshakeClient?.sendReady()
             }
             .onDisappear {
                 receiver.stop()

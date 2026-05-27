@@ -87,7 +87,6 @@ pub struct Depacketizer
     is_assembling: bool,
     expected_sequence_number: u16,
     reorder_buffer: BTreeMap<u16, RtpPacket>,
-    initialized: bool,
 }
 
 impl Depacketizer
@@ -98,7 +97,6 @@ impl Depacketizer
             is_assembling: false,
             expected_sequence_number: 0,
             reorder_buffer: BTreeMap::new(),
-            initialized: false,
         }
     }
 
@@ -109,9 +107,11 @@ impl Depacketizer
                   self.expected_sequence_number,
                   self.reorder_buffer.len());
 
-        if !self.initialized {
+        if !self.reorder_buffer.is_empty() || self.is_assembling {
+            // drop it, we're mid-stream
+        } else {
+            // reset to this packet
             self.expected_sequence_number = packet.header.sequence_number;
-            self.initialized = true;
         }
 
         self.reorder_buffer.insert(packet.header.sequence_number, packet);

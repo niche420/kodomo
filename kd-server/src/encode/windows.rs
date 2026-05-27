@@ -48,6 +48,9 @@ impl FfmpegEncoder
         options.set("tune", "ll");
         options.set("repeat_headers", "1");
         options.set("forced-idr", "1");
+        options.set("idr", "1");
+        options.set("g", fps.to_string().as_str());
+        options.set("intra-refresh", "0");
         let encoder = context
             .open_with(options)?;
 

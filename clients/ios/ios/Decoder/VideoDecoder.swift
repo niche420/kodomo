@@ -6,6 +6,7 @@ class VideoDecoder {
     var decompressionSession: VTDecompressionSession?
     private var sps: Data?
     private var pps: Data?
+    private var hasSeenIDR: Bool = false
     
     func decode(nalUnits: [Data]) {
         for nal in nalUnits {
@@ -43,11 +44,12 @@ class VideoDecoder {
                 }
                 break
             case 5: // IDR
+                hasSeenIDR = true
                 decodeFrame(nal)
-                break
             case 1: // P-frame
-                decodeFrame(nal)
-                break
+                if hasSeenIDR {
+                    decodeFrame(nal)
+                }
             default:
                 break
             }

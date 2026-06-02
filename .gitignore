@@ -10,3 +10,4 @@ DerivedData/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 *.xcuserstate
+clients/ios/ios.xcodeproj/xcuserdata

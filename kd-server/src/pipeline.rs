@@ -4,13 +4,12 @@ use std::str::FromStr;
 use std::sync::{Arc, Condvar, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use kd_shared::rtp::packetizer::Packetizer;
 use kd_shared::rtp::{NalType, RtpPacket};
 use crate::{capture, encode};
-use crate::capture::{Frame, FrameCapturer};
-use crate::encode::{EncodeConfig, FrameEncoder};
+use crate::capture::Frame;
+use crate::encode::EncodeConfig;
 use crate::network::NetworkConfig;
 
 #[derive(Default)]
@@ -38,7 +37,7 @@ struct PacketQueue
 }
 
 impl PacketQueue {
-    const MAX_PACKETS: usize = 8;
+    const MAX_PACKETS: usize = 512;
 
     pub fn new() -> PacketQueue {
         Self {
@@ -156,13 +155,13 @@ fn encode_thread(config: &EncodeConfig, slot: Arc<FrameSlot>, queue: Arc<PacketQ
             Some(frame) => {
                 match encoder.encode_frame(frame) {
                     Ok(nals) => {
-                        for nal in &nals {
-                            eprintln!("NAL type: {}", nal[0] & 0x1F);
-                        }
-
                         let (sps_pps, rest): (Vec<_>, Vec<_>) = nals.iter().partition(|nal| {
                             matches!(NalType::from(nal[0]), NalType::Sps | NalType::Pps)
                         });
+                        let rest: Vec<_> = rest.iter().filter(|nal| nal[0] & 0x1F != 6).collect();
+                        for nal in &rest {
+                            eprintln!("Sending NAL type: {}", nal[0] & 0x1F);
+                        }
 
                         if !sps_pps.is_empty() {
                             let sps_pps_slice: Vec<&[u8]> = sps_pps.iter().map(|nal| nal.as_slice()).collect();
@@ -206,6 +205,7 @@ fn network_thread(config: &NetworkConfig, queue: Arc<PacketQueue>, stopped: Arc<
         let Some(packet) = queue.pop(&stopped) else {
             break;
         };
+        eprintln!("Sending seq={} size={}", packet.header().sequence_number(), packet.encode().len());
         if let Err(e) = socket.send_to(&packet.encode(), dest) {
             eprintln!("Network error: {e}");
         }

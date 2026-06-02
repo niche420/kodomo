@@ -5,7 +5,7 @@ pub enum ScreenType {
     #[default]
     Home,
     Connect,
-    Session
+    Session,
 }
 
 pub trait Screen {

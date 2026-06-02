@@ -7,6 +7,9 @@ edition = "2024"
 kd-shared.path = "../kd-shared"
 anyhow.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+axum = "0.8.9"
 eframe = {version = "0.34.2", features = ["persistence", "ron", "serde"]}
 egui = "0.34.2"
 image = "0.25.10"

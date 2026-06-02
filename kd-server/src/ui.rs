@@ -3,17 +3,13 @@ mod connect;
 mod screen;
 mod session;
 
-use std::cell::RefCell;
 use std::cmp::PartialEq;
-use std::collections::VecDeque;
 use std::ops::Deref;
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use eframe::App;
 use serde::{Deserialize, Serialize};
-use kd_shared::game::{GameMetadata};
-use crate::pipeline::{Pipeline, PipelineConfig};
+use crate::pipeline::{Pipeline};
+use crate::state::{AppState, PersistentState};
 use crate::ui::connect::ConnectScreen;
 use crate::ui::home::HomeScreen;
 use crate::ui::screen::{Screen, ScreenType};
@@ -25,41 +21,8 @@ pub enum AppEvent {
     PipelineEnd,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Game {
-    metadata: GameMetadata,
-    thumbnail: Option<PathBuf>,
-    exe_path: PathBuf,
-    is_running: bool
-}
-
-pub struct AppState {
-    persistent: PersistentState,
-    pub selected_game: Option<String>,
-    session: Option<String>,
-    event_sender: crossbeam_channel::Sender<AppEvent>,
-    ctx: egui::Context,
-}
-
-#[derive(Serialize, Deserialize)]
-#[derive(Default)]
-pub struct PersistentState {
-    games: Vec<Game>,
-    config: PipelineConfig,
-}
-
-impl AppState {
-    pub fn push_event(&mut self, event: AppEvent) {
-        // We need a repaint to get the new screen to show up
-        if matches!(event, AppEvent::ScreenTransition(_)) {
-            self.ctx.request_repaint();
-        }
-        self.event_sender.send(event).unwrap();
-    }
-}
-
 pub struct ServerApp {
-    state: Rc<RefCell<AppState>>,
+    state: Arc<Mutex<AppState>>,
     current_screen: Box<dyn Screen>,
     pipeline: Pipeline,
     event_receiver: crossbeam_channel::Receiver<AppEvent>
@@ -71,29 +34,10 @@ impl ServerApp {
         let persistent = if let Some(storage) = cc.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
         } else {
-            let mut games = Vec::new();
-            games.push(Game {
-                metadata: GameMetadata {
-                    title: "Yakuza 3".to_string()
-                },
-                thumbnail: None,
-                exe_path: PathBuf::new(),
-                is_running: true
-            });
-
-            PersistentState {
-                games,
-                config: PipelineConfig::default()
-            }
+            PersistentState::default()
         };
-        let rc_state = Rc::new(RefCell::new(
-            AppState {
-                persistent,
-                session: None,
-                selected_game: None,
-                event_sender: send,
-                ctx: cc.egui_ctx.clone()
-            }
+        let rc_state = Arc::new(Mutex::new(
+            AppState::new(persistent, send, cc.egui_ctx.clone())
         ));
 
         Self {
@@ -104,7 +48,11 @@ impl ServerApp {
         }
     }
 
-    fn make_screen(state: Rc<RefCell<AppState>>, screen: ScreenType) -> Box<dyn Screen> {
+    pub fn state(&self) -> Arc<Mutex<AppState>> {
+        self.state.clone()
+    }
+
+    fn make_screen(state: Arc<Mutex<AppState>>, screen: ScreenType) -> Box<dyn Screen> {
         match screen {
             ScreenType::Home => Box::new(HomeScreen::new(state)),
             ScreenType::Connect => Box::new(ConnectScreen::new(state)),
@@ -123,8 +71,8 @@ impl ServerApp {
                     }
                 },
                 AppEvent::PipelineStart => {
-                    let state = self.state.borrow();
-                    self.pipeline.start(state.persistent.config.clone());
+                    let config = &self.state.lock().unwrap().persistent.config;
+                    self.pipeline.start(config.clone()).unwrap();
                 },
                 AppEvent::PipelineEnd => {
                     self.pipeline.stop();
@@ -144,6 +92,7 @@ impl eframe::App for ServerApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, eframe::APP_KEY, &self.state.borrow().persistent);
+        let guard = self.state.lock().unwrap();
+        eframe::set_value(storage, eframe::APP_KEY, &guard.persistent);
     }
 }

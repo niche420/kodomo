@@ -3,12 +3,16 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get, put},
+    routing::{delete, get, put, post},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::json;
+use uuid::Uuid;
 use crate::profile::{delete_profile, list_profiles, load_profile, save_profile_named};
 use crate::state::AppState;
+use crate::ui::AppEvent;
+use crate::ui::screen::ScreenType;
 
 pub type SharedState = Arc<Mutex<AppState>>;
 
@@ -21,11 +25,14 @@ pub async fn serve(state: SharedState) {
         .route("/games/:title/profiles/:name", delete(del_profile))
         .route("/games/:title/active", get(get_active))
         .route("/games/:title/active", put(put_active))
+        .route("/stream", post(post_stream))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:7000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
+
+// ─── Handlers ─────────────────────────────────────────────────────────────────
 
 async fn get_games(State(state): State<SharedState>) -> impl IntoResponse {
     let state = state.lock().unwrap();
@@ -98,4 +105,45 @@ async fn put_active(
         Some(game) => { game.active_profile = Some(name); StatusCode::OK }
         None => StatusCode::NOT_FOUND,
     }
+}
+
+// ─── Stream ───────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct StreamRequest {
+    game: String,
+}
+
+/// POST /stream
+/// Body: { "game": "Yakuza Kiwami 3" }
+/// Response: { "token": "<uuid>", "handshake_port": 6000 }
+///
+/// Generates a session token, stores it in AppState, and triggers the server
+/// UI to transition to the Connect screen for the requested game.
+/// The client uses the returned token immediately for the TCP handshake.
+async fn post_stream(
+    State(state): State<SharedState>,
+    Json(body): Json<StreamRequest>,
+) -> impl IntoResponse {
+    let mut state = state.lock().unwrap();
+
+    // Verify the game exists
+    if !state.persistent.games.iter().any(|g| g.metadata.title == body.game) {
+        return (StatusCode::NOT_FOUND, Json(json!({ "error": "Game not found" }))).into_response();
+    }
+
+    let token = Uuid::new_v4().to_string();
+    let handshake_port = state.persistent.config.network.handshake_port;
+
+    // Store the token and selected game so the Connect screen picks them up
+    state.session = Some(token.clone());
+    state.selected_game = Some(body.game);
+
+    // Transition the UI to the Connect screen
+    state.push_event(AppEvent::ScreenTransition(ScreenType::Connect));
+
+    Json(json!({
+        "token": token,
+        "handshake_port": handshake_port,
+    })).into_response()
 }

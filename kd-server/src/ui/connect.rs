@@ -29,13 +29,21 @@ impl ConnectScreen {
 
 impl Screen for ConnectScreen {
     fn on_show(&mut self) {
-        let session = Uuid::new_v4().to_string();
         let mut state = self.state.lock().unwrap();
+
+        // Use the token from /stream if already set, otherwise generate one
+        // (QR code flow generates its own token)
+        let session = state.session
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
         state.session = Some(session.clone());
+
         let handshake_port = state.persistent.config.network.handshake_port;
         let connected = self.connected.clone();
         let client_ip = self.client_ip.clone();
         let ctx = state.ctx.clone();
+        drop(state);
+
         std::thread::spawn(move || {
             let listener = HandshakeListener::new(handshake_port, session);
             loop {

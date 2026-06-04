@@ -75,29 +75,41 @@ struct GameListView: View {
     }
 }
 
-/// Everything needed to initiate a stream.
 struct GameTarget: Identifiable {
     let id = UUID()
     let server: PairedServer
     let game: ServerAPI.GameEntry
 }
 
-/// Handles the handshake then transitions to StreamView.
 struct StreamInitView: View {
     let target: GameTarget
     @Environment(\.dismiss) private var dismiss
     @State private var connectParams: ConnectParams? = nil
     @State private var handshakeClient: HandshakeClient? = nil
+    @State private var profile: GameProfile? = nil
     @State private var failed = false
+    @State private var errorMessage: String? = nil
+
+    private var api: ServerAPI { ServerAPI(server: target.server) }
 
     var body: some View {
         Group {
             if let params = connectParams {
-                StreamView(params: params, handshakeClient: handshakeClient, profile: nil)
+                StreamView(params: params, handshakeClient: handshakeClient, profile: profile)
             } else if failed {
                 VStack(spacing: 16) {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 50))
+                        .foregroundStyle(.red)
                     Text("Connection failed")
                         .font(.title2)
+                    if let msg = errorMessage {
+                        Text(msg)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
                     Button("Dismiss") { dismiss() }
                         .buttonStyle(.borderedProminent)
                 }
@@ -109,32 +121,66 @@ struct StreamInitView: View {
                 }
             }
         }
-        .onAppear { startHandshake() }
+        .task { await startStream() }
     }
 
-    private func startHandshake() {
-        // The server needs to be in the Connect screen showing the QR for this game.
-        // We initiate the handshake directly using the stored server credentials.
-        // Session token is generated on the server side when it shows the connect screen —
-        // for now we connect with an empty token; this will be replaced once the server
-        // exposes a /stream endpoint to issue a session token over HTTP.
+    private func startStream() async {
+        // 1. Ask the server to prepare a session token for this game
+        let streamResponse: StreamResponse
+        do {
+            streamResponse = try await requestStream()
+        } catch {
+            errorMessage = error.localizedDescription
+            failed = true
+            return
+        }
+
+        // 2. Fetch the active profile for this game (non-fatal if missing)
+        if let profileName = target.game.active_profile {
+            profile = try? await api.fetchProfile(
+                game: target.game.title,
+                name: profileName
+            )
+        }
+
+        // 3. Run the TCP handshake using the token the server gave us
         let client = HandshakeClient(
             host: target.server.ip,
-            port: target.server.handshakePort,
-            token: ""
+            port: streamResponse.handshakePort,
+            token: streamResponse.token
         )
         handshakeClient = client
         client.onConnected = {
             connectParams = ConnectParams(
                 ip: target.server.ip,
                 port: target.server.videoPort,
-                session: "",
+                session: streamResponse.token,
                 game: target.game.title
             )
         }
         client.onFailed = {
+            errorMessage = "Handshake failed"
             failed = true
         }
         client.connect()
     }
+
+    private func requestStream() async throws -> StreamResponse {
+        let url = target.server.baseURL.appendingPathComponent("/stream")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["game": target.game.title])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(StreamResponse.self, from: data)
+    }
+}
+
+private struct StreamResponse: Codable {
+    let token: String
+    let handshake_port: UInt16
+    var handshakePort: UInt16 { handshake_port }
 }

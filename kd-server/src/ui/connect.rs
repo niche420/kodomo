@@ -1,7 +1,4 @@
-use std::cell::RefCell;
 use std::net::UdpSocket;
-use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use eframe::emath::{Pos2, Rect, Vec2};
@@ -9,11 +6,9 @@ use egui::{Color32, Sense, Ui};
 use qrcode::QrCode;
 use uuid::Uuid;
 use kd_shared::connect::ConnectParams;
-use kd_shared::profile::GameProfile;
 use crate::http::SharedState;
 use crate::network::HandshakeListener;
-use crate::profile::load_profile;
-use crate::ui::{AppEvent, AppState};
+use crate::ui::AppEvent;
 use crate::ui::screen::{Screen, ScreenType};
 
 pub struct ConnectScreen {
@@ -73,7 +68,7 @@ impl Screen for ConnectScreen {
         ui.separator();
 
         let ip = get_lan_ip().unwrap_or_else(|| "127.0.0.1".to_string());
-        
+
         let game = state.persistent.games.iter().find(|g| g.metadata.title == state.selected_game.clone().unwrap_or(String::new())).unwrap();
         ui.label(format!("Game:    {}", game.metadata.title));
         ui.label(format!("Address: {}:{}", ip, state.persistent.config.network.video_port));
@@ -84,7 +79,8 @@ impl Screen for ConnectScreen {
         ui.label("Scan with Kodomo on your iPhone:");
         ui.add_space(8.0);
         let params = ConnectParams::new(ip.clone(), state.persistent.config.network.video_port, session.to_string(),
-                                        game.metadata.title.clone(), state.persistent.config.network.handshake_port);
+                                        game.metadata.title.clone(), state.persistent.config.network.handshake_port,
+                                        state.persistent.config.network.http_port);
         let url = params.to_url();
 
         match QrCode::new(url.as_bytes()) {

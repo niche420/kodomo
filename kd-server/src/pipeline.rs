@@ -97,8 +97,7 @@ impl Pipeline {
         let stopped = Arc::clone(&self.stopped);
         let queue = Arc::clone(&self.packet_queue);
         self.spawn_stage_thread(move || encode_thread(&config.encode, slot, queue, stopped));
-
-        let slot = Arc::clone(&self.frame_slot);
+        
         let stopped = Arc::clone(&self.stopped);
         let queue = Arc::clone(&self.packet_queue);
         self.spawn_stage_thread(move || network_thread(&config.network, queue, stopped));

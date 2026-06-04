@@ -7,6 +7,7 @@ pub struct NetworkConfig {
     pub dest_ip: String,
     pub video_port: u16,
     pub handshake_port: u16,
+    pub http_port: u16,
 }
 
 impl Default for NetworkConfig {
@@ -15,6 +16,7 @@ impl Default for NetworkConfig {
             dest_ip: String::new(),
             video_port: 5000,
             handshake_port: 6000,
+            http_port: 7000
         }
     }
 }

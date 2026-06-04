@@ -15,5 +15,7 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Kodomo uses the camera to scan server QR codes.</string>
 </dict>
 </plist>

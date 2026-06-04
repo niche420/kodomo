@@ -8,13 +8,14 @@ class HandshakeClient {
     var onConnected: (() -> Void)?
     var onFailed: (() -> Void)?
     private var connection: NWConnection?
-    
+    private var receiveBuffer = Data()
+
     init(host: String, port: UInt16, token: String) {
         self.host = host
         self.port = port
         self.token = token
     }
-    
+
     func connect() {
         let connection = NWConnection(
             host: NWEndpoint.Host(host),
@@ -22,13 +23,14 @@ class HandshakeClient {
             using: .tcp
         )
         self.connection = connection
-        connection.stateUpdateHandler = { state in
+        connection.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
             switch state {
             case .ready:
                 let data = (self.token + "\n").data(using: .utf8)!
                 connection.send(content: data, completion: .contentProcessed { error in
                     if error == nil {
-                        self.receive(on: connection)
+                        self.readLine { line in self.handleOk(line: line) }
                     } else {
                         self.onFailed?()
                     }
@@ -39,26 +41,40 @@ class HandshakeClient {
                 break
             }
         }
-        
         connection.start(queue: .global())
     }
-    
+
     func sendReady() {
         let data = "ready\n".data(using: .utf8)!
         connection?.send(content: data, completion: .idempotent)
     }
-    
-    private func receive(on connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 10) { data, _, _, error in
-            if let data = data, let response = String(data: data, encoding: .utf8) {
-                if response.trimmingCharacters(in: .whitespacesAndNewlines) == "ok" {
-                    self.onConnected?()
-                } else {
-                    self.onFailed?()
-                }
+
+    // ── Private ───────────────────────────────────────────────────────────────
+
+    private func readLine(completion: @escaping (String?) -> Void) {
+        connection?.receive(minimumIncompleteLength: 1, maximumLength: 65535) { [weak self] data, _, _, error in
+            guard let self else { return }
+            guard error == nil, let data else {
+                completion(nil)
+                return
+            }
+            self.receiveBuffer.append(data)
+            if let newlineRange = self.receiveBuffer.range(of: Data([UInt8(ascii: "\n")])) {
+                let lineData = self.receiveBuffer[..<newlineRange.lowerBound]
+                let line = String(data: lineData, encoding: .utf8)
+                self.receiveBuffer.removeSubrange(...newlineRange.lowerBound)
+                completion(line)
             } else {
-                self.onFailed?()
+                self.readLine(completion: completion)
             }
         }
+    }
+
+    private func handleOk(line: String?) {
+        guard line?.trimmingCharacters(in: .whitespacesAndNewlines) == "ok" else {
+            onFailed?()
+            return
+        }
+        onConnected?()
     }
 }

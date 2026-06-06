@@ -10,6 +10,7 @@ mod ui;
 mod http;
 mod profile;
 mod state;
+mod input;
 
 fn main() -> anyhow::Result<()> {
     let mut native_options = eframe::NativeOptions::default();

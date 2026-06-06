@@ -17,7 +17,10 @@ impl SessionScreen {
 
 impl Screen for SessionScreen {
     fn on_show(&mut self) {
-        self.state.lock().unwrap().push_event(AppEvent::PipelineStart);
+        let mut state = self.state.lock().unwrap();
+        state.persistent.config.active_game = state.selected_game;
+        state.persistent.config.active_profile_name = state.
+        state.push_event(AppEvent::PipelineStart);
     }
 
     fn render(&mut self, ui: &mut Ui) {

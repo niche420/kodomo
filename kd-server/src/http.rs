@@ -145,5 +145,6 @@ async fn post_stream(
     Json(json!({
         "token": token,
         "handshake_port": handshake_port,
+        "input_port": state.persistent.config.network.input_port,
     })).into_response()
 }

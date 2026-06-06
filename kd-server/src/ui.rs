@@ -1,6 +1,6 @@
 mod home;
 mod connect;
-mod screen;
+pub(crate) mod screen;
 mod session;
 
 use std::cmp::PartialEq;

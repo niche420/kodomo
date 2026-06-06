@@ -8,13 +8,19 @@ struct StreamView: View {
     private var decoder: VideoDecoder
     let renderer: MetalRenderer
     let handshakeClient: HandshakeClient?
+    private var sender: UDPSender
 
     var body: some View {
         ZStack {
             MetalView(renderer: renderer)
-            //if let profile { ControlOverlayView(profile: profile) }
+                .ignoresSafeArea()
+            if let profile {
+                ControlOverlayView(profile: profile, sender: sender)
+            }
         }
+        .ignoresSafeArea()
         .onAppear {
+            sender.start()
             decoder.onFrameDecoded = { pixelBuffer in
                 renderer.currentPixelBuffer = pixelBuffer
             }
@@ -30,6 +36,7 @@ struct StreamView: View {
             receiver.start()
         }
         .onDisappear {
+            sender.stop()
             receiver.stop()
         }
     }
@@ -42,5 +49,6 @@ struct StreamView: View {
         depacketizer = Depacketizer()
         decoder = VideoDecoder()
         renderer = MetalRenderer()
+        sender = UDPSender(host: params.ip, port: params.inputPort)
     }
 }

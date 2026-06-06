@@ -68,6 +68,8 @@ impl PacketQueue {
 pub struct PipelineConfig {
     pub encode: EncodeConfig,
     pub network: NetworkConfig,
+    pub active_game: Option<String>,
+    pub active_profile_name: Option<String>
 }
 
 #[derive(Default)]
@@ -101,6 +103,12 @@ impl Pipeline {
         let stopped = Arc::clone(&self.stopped);
         let queue = Arc::clone(&self.packet_queue);
         self.spawn_stage_thread(move || network_thread(&config.network, queue, stopped));
+
+        let profile = config.active_game.as_deref()
+            .and_then(|title| config.active_profile_name.as_deref()
+                .and_then(|name| crate::profile::load_profile(title, name)));
+        let stopped = Arc::clone(&self.stopped);
+        self.spawn_stage_thread(move || input_thread(config.network.input_port, profile, stopped));
 
         Ok(())
     }
@@ -207,6 +215,42 @@ fn network_thread(config: &NetworkConfig, queue: Arc<PacketQueue>, stopped: Arc<
         eprintln!("Sending seq={} size={}", packet.header().sequence_number(), packet.encode().len());
         if let Err(e) = socket.send_to(&packet.encode(), dest) {
             eprintln!("Network error: {e}");
+        }
+    }
+}
+
+pub fn input_thread(
+    input_port: u16,
+    profile: Option<kd_shared::profile::GameProfile>,
+    stopped: Arc<AtomicBool>,
+) {
+    let Some(profile) = profile else {
+        eprintln!("input: no active profile, input thread exiting");
+        return;
+    };
+
+    let socket = match std::net::UdpSocket::bind(format!("0.0.0.0:{}", input_port)) {
+        Ok(s) => s,
+        Err(e) => { eprintln!("input: bind error: {e}"); return; }
+    };
+    socket.set_read_timeout(Some(std::time::Duration::from_millis(100))).ok();
+
+    let mut injector = crate::input::create_injector();
+    let mut buf = [0u8; 4096];
+
+    eprintln!("input: listening on port {}", input_port);
+
+    while !stopped.load(Ordering::SeqCst) {
+        match socket.recv(&mut buf) {
+            Ok(len) => {
+                match serde_json::from_slice::<kd_shared::profile::InputEvent>(&buf[..len]) {
+                    Ok(event) => crate::input::dispatch(&mut *injector, &event, &profile),
+                    Err(e) => eprintln!("input: parse error: {e}"),
+                }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
+                || e.kind() == std::io::ErrorKind::TimedOut => continue,
+            Err(e) => eprintln!("input: recv error: {e}"),
         }
     }
 }

@@ -154,6 +154,7 @@ struct StreamInitView: View {
             connectParams = ConnectParams(
                 ip: target.server.ip,
                 port: target.server.videoPort,
+                inputPort: streamResponse.inputPort,
                 session: streamResponse.token,
                 game: target.game.title
             )
@@ -182,5 +183,7 @@ struct StreamInitView: View {
 private struct StreamResponse: Codable {
     let token: String
     let handshake_port: UInt16
+    let input_port: UInt16
     var handshakePort: UInt16 { handshake_port }
+    var inputPort: UInt16 { input_port }
 }

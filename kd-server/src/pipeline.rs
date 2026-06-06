@@ -4,73 +4,58 @@ use std::str::FromStr;
 use std::sync::{Arc, Condvar, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use serde::{Deserialize, Serialize};
 use kd_shared::rtp::packetizer::Packetizer;
 use kd_shared::rtp::{NalType, RtpPacket};
+use kd_shared::profile::GameProfile;
 use crate::{capture, encode};
 use crate::capture::Frame;
 use crate::encode::EncodeConfig;
 use crate::network::NetworkConfig;
+use crate::state::SessionState;
+
+// ─── Internal queue types ─────────────────────────────────────────────────────
 
 #[derive(Default)]
 struct FrameSlot(Mutex<Option<Frame>>);
 
 impl FrameSlot {
-    pub fn new() -> Self {
-        FrameSlot(Mutex::new(None))
-    }
-
-    pub fn write(&self, frame: Frame) {
-        *self.0.lock().unwrap() = Some(frame);
-    }
-
-    pub fn take(&self) -> Option<Frame> {
-        self.0.lock().unwrap().take()
-    }
+    fn write(&self, frame: Frame) { *self.0.lock().unwrap() = Some(frame); }
+    fn take(&self) -> Option<Frame> { self.0.lock().unwrap().take() }
 }
 
 #[derive(Default)]
-struct PacketQueue
-{
+struct PacketQueue {
     queue: Mutex<VecDeque<RtpPacket>>,
-    has_packet: Condvar
+    has_packet: Condvar,
 }
 
 impl PacketQueue {
-    const MAX_PACKETS: usize = 512;
+    const MAX: usize = 512;
 
-    pub fn new() -> PacketQueue {
+    fn new() -> Self {
         Self {
-            queue: Mutex::new(VecDeque::with_capacity(Self::MAX_PACKETS)),
-            has_packet: Condvar::new()
+            queue: Mutex::new(VecDeque::with_capacity(Self::MAX)),
+            has_packet: Condvar::new(),
         }
     }
 
-    pub fn push(&self, packet: RtpPacket) {
-        let queue = &mut *self.queue.lock().unwrap();
-        if queue.len() == Self::MAX_PACKETS {
-            queue.pop_front();
-        }
-        queue.push_back(packet);
+    fn push(&self, packet: RtpPacket) {
+        let q = &mut *self.queue.lock().unwrap();
+        if q.len() == Self::MAX { q.pop_front(); }
+        q.push_back(packet);
         self.has_packet.notify_one();
     }
 
-    pub fn pop(&self, stopped: &AtomicBool) -> Option<RtpPacket> {
-        let mut queue = &mut *self.has_packet.wait_while(
+    fn pop(&self, stopped: &AtomicBool) -> Option<RtpPacket> {
+        let mut q = self.has_packet.wait_while(
             self.queue.lock().unwrap(),
-            |q| q.is_empty() && !stopped.load(Ordering::SeqCst)
+            |q| q.is_empty() && !stopped.load(Ordering::SeqCst),
         ).unwrap();
-        queue.pop_front()
+        q.pop_front()
     }
 }
 
-#[derive(Serialize, Deserialize, Default, Clone)]
-pub struct PipelineConfig {
-    pub encode: EncodeConfig,
-    pub network: NetworkConfig,
-    pub active_game: Option<String>,
-    pub active_profile_name: Option<String>
-}
+// ─── Pipeline ─────────────────────────────────────────────────────────────────
 
 #[derive(Default)]
 pub struct Pipeline {
@@ -81,34 +66,49 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new() -> Pipeline {
+    pub fn new() -> Self {
         Self {
-            frame_slot: Arc::new(FrameSlot::new()),
+            frame_slot: Arc::new(FrameSlot::default()),
             packet_queue: Arc::new(PacketQueue::new()),
             threads: vec![],
             stopped: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    pub fn start(&mut self, config: PipelineConfig) -> anyhow::Result<()> {
+    /// Start all pipeline threads.
+    /// Takes only what it actually needs — no redundant config struct.
+    pub fn start(
+        &mut self,
+        encode: &EncodeConfig,
+        network: &NetworkConfig,
+        session: &SessionState,
+        profile: Option<GameProfile>,
+    ) -> anyhow::Result<()> {
+        self.stopped.store(false, Ordering::SeqCst);
+
+        // Capture thread
         let slot = Arc::clone(&self.frame_slot);
         let stopped = Arc::clone(&self.stopped);
-        self.spawn_stage_thread(move || capture_thread(slot, stopped));
+        self.spawn(move || capture_thread(slot, stopped));
 
+        // Encode + packetize thread
         let slot = Arc::clone(&self.frame_slot);
-        let stopped = Arc::clone(&self.stopped);
         let queue = Arc::clone(&self.packet_queue);
-        self.spawn_stage_thread(move || encode_thread(&config.encode, slot, queue, stopped));
-        
         let stopped = Arc::clone(&self.stopped);
-        let queue = Arc::clone(&self.packet_queue);
-        self.spawn_stage_thread(move || network_thread(&config.network, queue, stopped));
+        let encode = encode.clone();
+        self.spawn(move || encode_thread(encode, slot, queue, stopped));
 
-        let profile = config.active_game.as_deref()
-            .and_then(|title| config.active_profile_name.as_deref()
-                .and_then(|name| crate::profile::load_profile(title, name)));
+        // Network send thread
+        let queue = Arc::clone(&self.packet_queue);
         let stopped = Arc::clone(&self.stopped);
-        self.spawn_stage_thread(move || input_thread(config.network.input_port, profile, stopped));
+        let dest_ip = session.client_ip.clone();
+        let video_port = network.video_port;
+        self.spawn(move || network_thread(dest_ip, video_port, queue, stopped));
+
+        // Input receive thread
+        let stopped = Arc::clone(&self.stopped);
+        let input_port = network.input_port;
+        self.spawn(move || input_thread(input_port, profile, stopped));
 
         Ok(())
     }
@@ -116,120 +116,103 @@ impl Pipeline {
     pub fn stop(&mut self) {
         self.stopped.store(true, Ordering::SeqCst);
         self.packet_queue.has_packet.notify_all();
-        self.threads.drain(..).for_each(|t| t.join().unwrap());
+        self.threads.drain(..).for_each(|t| { t.join().ok(); });
     }
 
-    fn spawn_stage_thread<F>(&mut self, stage: F)
-    where
-        F: FnOnce() + Send + 'static {
-        let handle = std::thread::spawn(move || {
-            stage();
-        });
-        self.threads.push(handle);
+    fn spawn<F: FnOnce() + Send + 'static>(&mut self, f: F) {
+        self.threads.push(std::thread::spawn(f));
     }
 }
+
+// ─── Thread functions ─────────────────────────────────────────────────────────
 
 fn capture_thread(slot: Arc<FrameSlot>, stopped: Arc<AtomicBool>) {
     let mut capturer = match capture::create_capturer() {
-        Ok(capturer) => capturer,
-        Err(e) => {
-            eprintln!("Capture error: {e}");
-            return;
-        }
+        Ok(c) => c,
+        Err(e) => { eprintln!("capture: {e}"); return; }
     };
-    
     while !stopped.load(Ordering::SeqCst) {
-        match capturer.capture_frame() {
-            Some(frame) => slot.write(frame),
-            None => {},
+        if let Some(frame) = capturer.capture_frame() {
+            slot.write(frame);
         }
     }
 }
 
-fn encode_thread(config: &EncodeConfig, slot: Arc<FrameSlot>, queue: Arc<PacketQueue>, stopped: Arc<AtomicBool>) {
+fn encode_thread(
+    config: EncodeConfig,
+    slot: Arc<FrameSlot>,
+    queue: Arc<PacketQueue>,
+    stopped: Arc<AtomicBool>,
+) {
     let mut encoder = match encode::create_encoder(&config) {
-        Ok(encoder) => encoder,
-        Err(e) => {
-            eprintln!("Encode error: {e}");
-            return;
-        }
+        Ok(e) => e,
+        Err(e) => { eprintln!("encode: {e}"); return; }
     };
     let mut packetizer = Packetizer::new(0, 0, 1400);
     let mut timestamp: u32 = 0;
 
     while !stopped.load(Ordering::SeqCst) {
-        match slot.take() {
-            Some(frame) => {
-                match encoder.encode_frame(frame) {
-                    Ok(nals) => {
-                        let (sps_pps, rest): (Vec<_>, Vec<_>) = nals.iter().partition(|nal| {
-                            matches!(NalType::from(nal[0]), NalType::Sps | NalType::Pps)
-                        });
-                        let rest: Vec<_> = rest.iter().filter(|nal| nal[0] & 0x1F != 6).collect();
-                        for nal in &rest {
-                            eprintln!("Sending NAL type: {}", nal[0] & 0x1F);
-                        }
+        if let Some(frame) = slot.take() {
+            match encoder.encode_frame(frame) {
+                Ok(nals) => {
+                    let (sps_pps, rest): (Vec<_>, Vec<_>) = nals.iter().partition(|nal| {
+                        matches!(NalType::from(nal[0]), NalType::Sps | NalType::Pps)
+                    });
+                    let rest: Vec<_> = rest.iter().filter(|nal| nal[0] & 0x1F != 6).collect();
 
-                        if !sps_pps.is_empty() {
-                            let sps_pps_slice: Vec<&[u8]> = sps_pps.iter().map(|nal| nal.as_slice()).collect();
-                            let packet = packetizer.packetize_stap_a(&sps_pps_slice, timestamp);
-                            queue.push(packet);
-                        }
-
-                        for (i, nal) in rest.iter().enumerate() {
-                            let mut packets = packetizer.packetize_nal(&nal, timestamp, i == rest.len() - 1);
-                            packets.drain(..).for_each(|packet| {queue.push(packet);});
-                        }
-                    },
-                    Err(e) => eprintln!("Encode error: {e}")
+                    if !sps_pps.is_empty() {
+                        let slices: Vec<&[u8]> = sps_pps.iter().map(|n| n.as_slice()).collect();
+                        queue.push(packetizer.packetize_stap_a(&slices, timestamp));
+                    }
+                    for (i, nal) in rest.iter().enumerate() {
+                        let last = i == rest.len() - 1;
+                        packetizer.packetize_nal(nal, timestamp, last)
+                            .drain(..)
+                            .for_each(|p| queue.push(p));
+                    }
                 }
+                Err(e) => eprintln!("encode: {e}"),
             }
-            None => {}
         }
-
         timestamp = timestamp.wrapping_add(90000 / 60);
     }
 }
 
-fn network_thread(config: &NetworkConfig, queue: Arc<PacketQueue>, stopped: Arc<AtomicBool>) {
+fn network_thread(
+    dest_ip: String,
+    video_port: u16,
+    queue: Arc<PacketQueue>,
+    stopped: Arc<AtomicBool>,
+) {
     let socket = match UdpSocket::bind("0.0.0.0:0") {
         Ok(s) => s,
-        Err(e) => {
-            eprintln!("Network error: {e}");
-            return;
-        }
+        Err(e) => { eprintln!("network: {e}"); return; }
     };
-    let dest_ip = match IpAddr::from_str(&*config.dest_ip) {
+    let dest_ip = match IpAddr::from_str(&dest_ip) {
         Ok(ip) => ip,
-        Err(e) => {
-            eprintln!("Network error: {e}");
-            return;
-        }
+        Err(e) => { eprintln!("network: bad ip: {e}"); return; }
     };
-    let dest = SocketAddr::new(dest_ip, config.video_port);
+    let dest = SocketAddr::new(dest_ip, video_port);
 
     while !stopped.load(Ordering::SeqCst) {
-        let Some(packet) = queue.pop(&stopped) else {
-            break;
-        };
-        eprintln!("Sending seq={} size={}", packet.header().sequence_number(), packet.encode().len());
+        let Some(packet) = queue.pop(&stopped) else { break; };
         if let Err(e) = socket.send_to(&packet.encode(), dest) {
-            eprintln!("Network error: {e}");
+            eprintln!("network: {e}");
         }
     }
 }
 
-pub fn input_thread(
+fn input_thread(
     input_port: u16,
-    profile: Option<kd_shared::profile::GameProfile>,
+    profile: Option<GameProfile>,
     stopped: Arc<AtomicBool>,
 ) {
     let Some(profile) = profile else {
-        eprintln!("input: no active profile, input thread exiting");
+        eprintln!("input: no active profile, thread exiting");
         return;
     };
 
-    let socket = match std::net::UdpSocket::bind(format!("0.0.0.0:{}", input_port)) {
+    let socket = match UdpSocket::bind(format!("0.0.0.0:{}", input_port)) {
         Ok(s) => s,
         Err(e) => { eprintln!("input: bind error: {e}"); return; }
     };
@@ -250,7 +233,7 @@ pub fn input_thread(
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
                 || e.kind() == std::io::ErrorKind::TimedOut => continue,
-            Err(e) => eprintln!("input: recv error: {e}"),
+            Err(e) => eprintln!("input: {e}"),
         }
     }
 }

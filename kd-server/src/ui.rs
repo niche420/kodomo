@@ -3,13 +3,11 @@ mod connect;
 pub(crate) mod screen;
 mod session;
 
-use std::cmp::PartialEq;
-use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use eframe::App;
-use serde::{Deserialize, Serialize};
-use crate::pipeline::{Pipeline};
-use crate::state::{AppState, PersistentState};
+use kd_shared::profile::GameProfile;
+use crate::pipeline::Pipeline;
+use crate::state::{AppState, PersistentState, SessionState};
 use crate::ui::connect::ConnectScreen;
 use crate::ui::home::HomeScreen;
 use crate::ui::screen::{Screen, ScreenType};
@@ -17,7 +15,7 @@ use crate::ui::session::SessionScreen;
 
 pub enum AppEvent {
     ScreenTransition(ScreenType),
-    PipelineStart,
+    PipelineStart(SessionState, Option<GameProfile>),
     PipelineEnd,
 }
 
@@ -25,7 +23,7 @@ pub struct ServerApp {
     state: Arc<Mutex<AppState>>,
     current_screen: Box<dyn Screen>,
     pipeline: Pipeline,
-    event_receiver: crossbeam_channel::Receiver<AppEvent>
+    event_receiver: crossbeam_channel::Receiver<AppEvent>,
 }
 
 impl ServerApp {
@@ -36,15 +34,13 @@ impl ServerApp {
         } else {
             PersistentState::default()
         };
-        let rc_state = Arc::new(Mutex::new(
-            AppState::new(persistent, send, cc.egui_ctx.clone())
-        ));
+        let state = Arc::new(Mutex::new(AppState::new(persistent, send, cc.egui_ctx.clone())));
 
         Self {
-            state: rc_state.clone(),
-            current_screen: Self::make_screen(rc_state, ScreenType::Home),
+            state: state.clone(),
+            current_screen: Self::make_screen(state, ScreenType::Home),
             pipeline: Pipeline::new(),
-            event_receiver: recv
+            event_receiver: recv,
         }
     }
 
@@ -54,7 +50,7 @@ impl ServerApp {
 
     fn make_screen(state: Arc<Mutex<AppState>>, screen: ScreenType) -> Box<dyn Screen> {
         match screen {
-            ScreenType::Home => Box::new(HomeScreen::new(state)),
+            ScreenType::Home    => Box::new(HomeScreen::new(state)),
             ScreenType::Connect => Box::new(ConnectScreen::new(state)),
             ScreenType::Session => Box::new(SessionScreen::new(state)),
         }
@@ -63,19 +59,25 @@ impl ServerApp {
     fn process_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = self.event_receiver.try_recv() {
             match event {
-                AppEvent::ScreenTransition(after) => {
-                    if after != self.current_screen.get_type() {
-                        self.current_screen = Self::make_screen(self.state.clone(), after);
+                AppEvent::ScreenTransition(next) => {
+                    if next != self.current_screen.get_type() {
+                        self.current_screen = Self::make_screen(self.state.clone(), next);
                         self.current_screen.on_show();
                         ctx.request_repaint();
                     }
-                },
-                AppEvent::PipelineStart => {
-                    let config = &self.state.lock().unwrap().persistent.config;
-                    self.pipeline.start(config.clone()).unwrap();
-                },
+                }
+                AppEvent::PipelineStart(session, profile) => {
+                    let state = self.state.lock().unwrap();
+                    self.pipeline.start(
+                        &state.persistent.encode,
+                        &state.persistent.network,
+                        &session,
+                        profile,
+                    ).ok();
+                }
                 AppEvent::PipelineEnd => {
                     self.pipeline.stop();
+                    self.state.lock().unwrap().session = None;
                 }
             }
         }
@@ -87,12 +89,10 @@ impl eframe::App for ServerApp {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             self.current_screen.render(ui);
         });
-
         self.process_events(ui.ctx());
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        let guard = self.state.lock().unwrap();
-        eframe::set_value(storage, eframe::APP_KEY, &guard.persistent);
+        eframe::set_value(storage, eframe::APP_KEY, &self.state.lock().unwrap().persistent);
     }
 }

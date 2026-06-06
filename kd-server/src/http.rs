@@ -9,8 +9,9 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
+use kd_shared::profile::GameProfile;
 use crate::profile::{delete_profile, list_profiles, load_profile, save_profile_named};
-use crate::state::AppState;
+use crate::state::{AppState, SessionState};
 use crate::ui::AppEvent;
 use crate::ui::screen::ScreenType;
 
@@ -32,8 +33,6 @@ pub async fn serve(state: SharedState) {
     axum::serve(listener, app).await.unwrap();
 }
 
-// ─── Handlers ─────────────────────────────────────────────────────────────────
-
 async fn get_games(State(state): State<SharedState>) -> impl IntoResponse {
     let state = state.lock().unwrap();
     let games: Vec<serde_json::Value> = state.persistent.games.iter().map(|g| json!({
@@ -44,27 +43,26 @@ async fn get_games(State(state): State<SharedState>) -> impl IntoResponse {
 }
 
 async fn get_profiles(
-    State(_state): State<SharedState>,
+    State(_): State<SharedState>,
     Path(title): Path<String>,
 ) -> impl IntoResponse {
-    let names = list_profiles(&title);
-    Json(names)
+    Json(list_profiles(&title))
 }
 
 async fn get_profile(
-    State(_state): State<SharedState>,
+    State(_): State<SharedState>,
     Path((title, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
     match load_profile(&title, &name) {
-        Some(profile) => Json(serde_json::to_value(profile).unwrap()).into_response(),
+        Some(p) => Json(serde_json::to_value(p).unwrap()).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
 async fn put_profile(
-    State(_state): State<SharedState>,
+    State(_): State<SharedState>,
     Path((title, name)): Path<(String, String)>,
-    Json(profile): Json<kd_shared::profile::GameProfile>,
+    Json(profile): Json<GameProfile>,
 ) -> impl IntoResponse {
     match save_profile_named(&title, &name, &profile) {
         Ok(_) => StatusCode::OK,
@@ -73,7 +71,7 @@ async fn put_profile(
 }
 
 async fn del_profile(
-    State(_state): State<SharedState>,
+    State(_): State<SharedState>,
     Path((title, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
     delete_profile(&title, &name);
@@ -101,50 +99,41 @@ async fn put_active(
         None => return StatusCode::BAD_REQUEST,
     };
     let mut state = state.lock().unwrap();
-    match state.persistent.games.iter_mut().find(|g| g.metadata.title == title) {
+    match state.game_mut(&title) {
         Some(game) => { game.active_profile = Some(name); StatusCode::OK }
         None => StatusCode::NOT_FOUND,
     }
 }
-
-// ─── Stream ───────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 struct StreamRequest {
     game: String,
 }
 
-/// POST /stream
-/// Body: { "game": "Yakuza Kiwami 3" }
-/// Response: { "token": "<uuid>", "handshake_port": 6000 }
-///
-/// Generates a session token, stores it in AppState, and triggers the server
-/// UI to transition to the Connect screen for the requested game.
-/// The client uses the returned token immediately for the TCP handshake.
 async fn post_stream(
     State(state): State<SharedState>,
     Json(body): Json<StreamRequest>,
 ) -> impl IntoResponse {
     let mut state = state.lock().unwrap();
 
-    // Verify the game exists
     if !state.persistent.games.iter().any(|g| g.metadata.title == body.game) {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "Game not found" }))).into_response();
     }
 
     let token = Uuid::new_v4().to_string();
-    let handshake_port = state.persistent.config.network.handshake_port;
 
-    // Store the token and selected game so the Connect screen picks them up
-    state.session = Some(token.clone());
+    // Store a partial session — client_ip filled in after handshake completes
+    state.session = Some(SessionState {
+        token: token.clone(),
+        client_ip: String::new(),
+        game_title: body.game.clone(),
+    });
     state.selected_game = Some(body.game);
-
-    // Transition the UI to the Connect screen
     state.push_event(AppEvent::ScreenTransition(ScreenType::Connect));
 
     Json(json!({
         "token": token,
-        "handshake_port": handshake_port,
-        "input_port": state.persistent.config.network.input_port,
+        "handshake_port": state.persistent.network.handshake_port,
+        "input_port": state.persistent.network.input_port,
     })).into_response()
 }

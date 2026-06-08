@@ -1,9 +1,16 @@
+# Rust
 .cargo/config.toml
 target/
 kd-server-data
 
-.DS_Store
-## User settings
+# Windows/VS
+*.user
+kd-input/.vs/
+kd-input/x64/
+*.tlog
+
+
+# MacOS/XCode
 .DS_Store
 build/
 DerivedData/

@@ -23,7 +23,6 @@ impl FrameSlot {
     fn take(&self) -> Option<Frame> { self.0.lock().unwrap().take() }
 }
 
-#[derive(Default)]
 struct PacketQueue {
     queue: Mutex<VecDeque<RtpPacket>>,
     has_packet: Condvar,
@@ -57,7 +56,6 @@ impl PacketQueue {
 
 // ─── Pipeline ─────────────────────────────────────────────────────────────────
 
-#[derive(Default)]
 pub struct Pipeline {
     frame_slot: Arc<FrameSlot>,
     packet_queue: Arc<PacketQueue>,

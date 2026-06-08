@@ -1,0 +1,112 @@
+; kd-input.inf
+;
+; Installation file for the Kodomo virtual HID input driver.
+;
+; An INF file is a structured text file that tells Windows:
+;   - What the driver is called and who made it
+;   - Which devices it supports (matched by hardware ID)
+;   - Which files to copy and where
+;   - What registry keys to create
+;   - Which services to install
+;
+; Windows reads this file when you run:
+;   devcon install kd-input.inf KdInput\VirtualHID
+; or right-click → Install in Explorer.
+
+; ── Header ────────────────────────────────────────────────────────────────────
+;
+; [Version] is required in every INF file.
+; Signature must be "$Windows NT$" for kernel drivers.
+; Class and ClassGuid identify the device class — we use "System" which is
+; the generic class for software-only devices with no physical hardware.
+; The System class GUID is a well-known value defined by Microsoft.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = System
+ClassGuid   = {4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider    = %ManufacturerName%
+DriverVer   = 06/07/2026,1.0.0.0
+CatalogFile = kd-input.cat
+PnpLockdown = 1
+
+; ── Manufacturer and models ───────────────────────────────────────────────────
+;
+; [Manufacturer] lists the companies whose devices this INF covers.
+; The %ManufacturerName% refers to a string defined in [Strings] below.
+; "NTamd64" means this section applies to 64-bit Windows (required for
+; any driver that will be loaded on modern Windows).
+
+[Manufacturer]
+%ManufacturerName% = Standard,NTamd64.10.0...16299
+
+; [Standard.NTamd64] maps hardware IDs to install sections.
+; The hardware ID "KdInput\VirtualHID" is what we pass to devcon.
+; It's an arbitrary string we made up — it just needs to match what
+; devcon uses when installing.
+
+[Standard.NTamd64.10.0...16299]
+%DeviceName% = KdInput_Install, KdInput\VirtualHID
+
+; ── Install section ───────────────────────────────────────────────────────────
+;
+; [KdInput_Install] describes what to do when installing for this device.
+; CopyFiles lists which file copy sections to run.
+
+[KdInput_Install.NT]
+CopyFiles = KdInput_CopyFiles
+
+; [KdInput_Install.NT.Services] registers our driver as a Windows service.
+; Every kernel driver runs as a service — this is how Windows manages
+; driver loading, starting, and stopping.
+
+[KdInput_Install.NT.Services]
+AddService = KdInput, 0x00000002, KdInput_Service
+
+; ── File copy ─────────────────────────────────────────────────────────────────
+;
+; Copies kd-input.sys from the installation source (wherever the INF file is)
+; to %SystemRoot%\System32\drivers\ (i.e. C:\Windows\System32\drivers\).
+; 12 is the DIRID for the drivers directory.
+
+[KdInput_CopyFiles]
+kd-input.sys
+
+[DestinationDirs]
+KdInput_CopyFiles = 13
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+kd-input.sys = 1
+
+; ── Service definition ────────────────────────────────────────────────────────
+;
+; This section defines the Windows service that loads our driver.
+;
+; ServiceType 1 = SERVICE_KERNEL_DRIVER (a kernel-mode driver)
+; StartType   3 = SERVICE_DEMAND_START  (loaded on demand, not at boot)
+;                 Use 1 (SERVICE_SYSTEM_START) if you want it loaded at boot.
+; ErrorControl 1 = SERVICE_ERROR_NORMAL (log error but continue booting)
+; ServiceBinary = path to the .sys file, %12% expands to the drivers directory
+
+[KdInput_Service]
+DisplayName    = %ServiceName%
+ServiceType    = 1
+StartType      = 3
+ErrorControl   = 1
+ServiceBinary  = %13%\kd-input.sys
+LoadOrderGroup = Extended Base
+
+; ── Strings ───────────────────────────────────────────────────────────────────
+;
+; String substitutions used throughout the INF.
+; %Token% syntax anywhere in the INF is replaced with the value here.
+; This makes localization easier and keeps repeated strings in one place.
+
+[Strings]
+ManufacturerName = "Kodomo"
+DeviceName       = "Kodomo Virtual HID Input"
+ServiceName      = "KdInput"
+DiskName         = "Kodomo Driver Installation Disk"

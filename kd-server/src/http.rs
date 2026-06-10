@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -10,8 +11,10 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 use kd_shared::profile::GameProfile;
+use crate::network::HandshakeListener;
 use crate::profile::{delete_profile, list_profiles, load_profile, save_profile_named};
 use crate::state::{AppState, SessionState};
+use crate::{network, ui};
 use crate::ui::AppEvent;
 use crate::ui::screen::ScreenType;
 
@@ -20,12 +23,12 @@ pub type SharedState = Arc<Mutex<AppState>>;
 pub async fn serve(state: SharedState) {
     let app = Router::new()
         .route("/games", get(get_games))
-        .route("/games/:title/profiles", get(get_profiles))
-        .route("/games/:title/profiles/:name", get(get_profile))
-        .route("/games/:title/profiles/:name", put(put_profile))
-        .route("/games/:title/profiles/:name", delete(del_profile))
-        .route("/games/:title/active", get(get_active))
-        .route("/games/:title/active", put(put_active))
+        .route("/games/{title}/profiles", get(get_profiles))
+        .route("/games/{title}/profiles/{name}", get(get_profile))
+        .route("/games/{title}/profiles/{name}", put(put_profile))
+        .route("/games/{title}/profiles/{name}", delete(del_profile))
+        .route("/games/{title}/active", get(get_active))
+        .route("/games/{title}/active", put(put_active))
         .route("/stream", post(post_stream))
         .with_state(state);
 
@@ -121,19 +124,24 @@ async fn post_stream(
     }
 
     let token = Uuid::new_v4().to_string();
+    let handshake_port = state.persistent.network.handshake_port;
+    let input_port = state.persistent.network.input_port;
 
-    // Store a partial session — client_ip filled in after handshake completes
+    // Store partial session
     state.session = Some(SessionState {
         token: token.clone(),
         client_ip: String::new(),
         game_title: body.game.clone(),
     });
     state.selected_game = Some(body.game);
+
+    // Start listening BEFORE sending the response so the client
+    // doesn't try to connect before we're ready
     state.push_event(AppEvent::ScreenTransition(ScreenType::Connect));
 
     Json(json!({
         "token": token,
-        "handshake_port": state.persistent.network.handshake_port,
-        "input_port": state.persistent.network.input_port,
+        "handshake_port": handshake_port,
+        "input_port": input_port,
     })).into_response()
 }

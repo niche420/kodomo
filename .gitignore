@@ -11,6 +11,7 @@ kd-input/x64/
 
 
 # MacOS/XCode
+*.a
 .DS_Store
 build/
 DerivedData/

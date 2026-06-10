@@ -12,6 +12,29 @@ use crate::state::SessionState;
 use crate::ui::AppEvent;
 use crate::ui::screen::{Screen, ScreenType};
 
+/// Spawns the handshake listener thread.
+/// Called from both on_show (QR flow) and from http.rs (/stream flow)
+/// so the listener is always started before the client tries to connect.
+pub fn spawn_handshake_listener(
+    handshake_port: u16,
+    token: String,
+    connected: Arc<AtomicBool>,
+    client_ip: Arc<Mutex<Option<String>>>,
+    ctx: egui::Context,
+) {
+    std::thread::spawn(move || {
+        let listener = HandshakeListener::new(handshake_port, token);
+        loop {
+            if let Ok(ip) = listener.listen() {
+                *client_ip.lock().unwrap() = Some(ip.to_string());
+                connected.store(true, Ordering::SeqCst);
+                ctx.request_repaint();
+                break;
+            }
+        }
+    });
+}
+
 pub struct ConnectScreen {
     state: SharedState,
     connected: Arc<AtomicBool>,
@@ -40,7 +63,6 @@ impl Screen for ConnectScreen {
 
         let game_title = state.selected_game.clone().unwrap_or_default();
 
-        // Store the partial session — client_ip filled in after handshake
         state.session = Some(SessionState {
             token: token.clone(),
             client_ip: String::new(),
@@ -48,23 +70,23 @@ impl Screen for ConnectScreen {
         });
 
         let handshake_port = state.persistent.network.handshake_port;
-        let connected = self.connected.clone();
-        let client_ip = self.client_ip.clone();
         let ctx = state.ctx.clone();
+
+        // Reset connection state for this new session
+        self.connected.store(false, Ordering::SeqCst);
+        *self.client_ip.lock().unwrap() = None;
+
         drop(state);
 
-        std::thread::spawn(move || {
-            let listener = HandshakeListener::new(handshake_port, token);
-            loop {
-                if let Ok(ip) = listener.listen() {
-                    *client_ip.lock().unwrap() = Some(ip.to_string());
-                    connected.store(true, Ordering::SeqCst);
-                    ctx.request_repaint();
-                    break;
-                }
-            }
-        });
+        spawn_handshake_listener(
+            handshake_port,
+            token,
+            self.connected.clone(),
+            self.client_ip.clone(),
+            ctx,
+        );
     }
+
 
     fn render(&mut self, ui: &mut Ui) {
         let mut state = self.state.lock().unwrap();

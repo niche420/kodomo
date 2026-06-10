@@ -6,6 +6,7 @@ struct GameListView: View {
     @State private var isLoading = false
     @State private var error: String? = nil
     @State private var streamTarget: GameTarget? = nil
+    @State private var profilesTarget: GameTarget? = nil
 
     private var api: ServerAPI { ServerAPI(server: server) }
 
@@ -42,12 +43,17 @@ struct GameListView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             } else {
-                                Text("No profile")
+                                Text("No active profile")
                                     .font(.caption)
                                     .foregroundStyle(.tertiary)
                             }
                         }
                         Spacer()
+                        Button("Profiles") {
+                            profilesTarget = GameTarget(server: server, game: game)
+                        }
+                        .buttonStyle(.bordered)
+                     
                         Button("Stream") {
                             streamTarget = GameTarget(server: server, game: game)
                         }
@@ -60,6 +66,9 @@ struct GameListView: View {
         .task { await load() }
         .fullScreenCover(item: $streamTarget) { target in
             StreamInitView(target: target)
+        }
+        .navigationDestination(item: $profilesTarget) { target in
+            ProfileListView(server: target.server, game: target.game)
         }
     }
 

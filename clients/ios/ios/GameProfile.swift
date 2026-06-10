@@ -23,10 +23,6 @@ enum GamepadButton: String, Codable {
     case Start, Select
 }
 
-// PhysicalInput is only needed on the server side for injection.
-// The client doesn't need to know about it — it only sends action IDs.
-// We decode it anyway so GameProfile roundtrips cleanly, but the
-// overlay rendering code never looks at it.
 enum PhysicalInput: Codable {
     case Key(UInt16)
     case MButton(UInt8)
@@ -35,19 +31,18 @@ enum PhysicalInput: Codable {
     case GPadAxis(GamepadAxis)
     case GPadTrigger(GamepadTrigger)
 
-    // Rust serializes these as { "type": "Key", "value": 30 } etc.
     enum CodingKeys: String, CodingKey { case type, value }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let type_ = try c.decode(String.self, forKey: .type)
         switch type_ {
-        case "Key":           self = .Key(try c.decode(UInt16.self, forKey: .value))
-        case "MouseButton":   self = .MButton(try c.decode(UInt8.self, forKey: .value))
-        case "MouseAxis":     self = .MAxis(try c.decode(MouseAxis.self, forKey: .value))
-        case "GamepadButton": self = .GPadButton(try c.decode(GamepadButton.self, forKey: .value))
-        case "GamepadAxis":   self = .GPadAxis(try c.decode(GamepadAxis.self, forKey: .value))
-        case "GamepadTrigger":self = .GPadTrigger(try c.decode(GamepadTrigger.self, forKey: .value))
+        case "Key":            self = .Key(try c.decode(UInt16.self, forKey: .value))
+        case "MouseButton":    self = .MButton(try c.decode(UInt8.self, forKey: .value))
+        case "MouseAxis":      self = .MAxis(try c.decode(MouseAxis.self, forKey: .value))
+        case "GamepadButton":  self = .GPadButton(try c.decode(GamepadButton.self, forKey: .value))
+        case "GamepadAxis":    self = .GPadAxis(try c.decode(GamepadAxis.self, forKey: .value))
+        case "GamepadTrigger": self = .GPadTrigger(try c.decode(GamepadTrigger.self, forKey: .value))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "Unknown PhysicalInput type: \(type_)")
         }
     }
@@ -55,12 +50,12 @@ enum PhysicalInput: Codable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .Key(let v):           try c.encode("Key", forKey: .type);           try c.encode(v, forKey: .value)
-        case .MButton(let v):   try c.encode("MouseButton", forKey: .type);   try c.encode(v, forKey: .value)
-        case .MAxis(let v):     try c.encode("MouseAxis", forKey: .type);     try c.encode(v, forKey: .value)
-        case .GPadButton(let v): try c.encode("GamepadButton", forKey: .type); try c.encode(v, forKey: .value)
-        case .GPadAxis(let v):   try c.encode("GamepadAxis", forKey: .type);   try c.encode(v, forKey: .value)
-        case .GPadTrigger(let v):try c.encode("GamepadTrigger", forKey: .type);try c.encode(v, forKey: .value)
+        case .Key(let v):          try c.encode("Key", forKey: .type);           try c.encode(v, forKey: .value)
+        case .MButton(let v):      try c.encode("MouseButton", forKey: .type);   try c.encode(v, forKey: .value)
+        case .MAxis(let v):        try c.encode("MouseAxis", forKey: .type);     try c.encode(v, forKey: .value)
+        case .GPadButton(let v):   try c.encode("GamepadButton", forKey: .type); try c.encode(v, forKey: .value)
+        case .GPadAxis(let v):     try c.encode("GamepadAxis", forKey: .type);   try c.encode(v, forKey: .value)
+        case .GPadTrigger(let v):  try c.encode("GamepadTrigger", forKey: .type);try c.encode(v, forKey: .value)
         }
     }
 }
@@ -111,15 +106,14 @@ enum TouchWidget: Codable {
     case Joystick(id: String, rect: WidgetRect, mode: JoystickMode)
     case Trigger(id: String, label: String, rect: WidgetRect)
 
-    // Rust serializes as { "kind": "Button", "id": ..., ... }
     enum CodingKeys: String, CodingKey { case kind, id, label, rect, mode }
 
     var id: String {
         switch self {
-        case .Button(let id, _, _):    return id
-        case .DPad(let id, _):         return id
-        case .Joystick(let id, _, _):  return id
-        case .Trigger(let id, _, _):   return id
+        case .Button(let id, _, _):   return id
+        case .DPad(let id, _):        return id
+        case .Joystick(let id, _, _): return id
+        case .Trigger(let id, _, _):  return id
         }
     }
 
@@ -128,25 +122,25 @@ enum TouchWidget: Codable {
         switch try c.decode(String.self, forKey: .kind) {
         case "Button":
             self = .Button(
-                id:    try c.decode(String.self, forKey: .id),
-                label: try c.decode(String.self, forKey: .label),
+                id:    try c.decode(String.self,     forKey: .id),
+                label: try c.decode(String.self,     forKey: .label),
                 rect:  try c.decode(WidgetRect.self, forKey: .rect)
             )
         case "DPad":
             self = .DPad(
-                id:   try c.decode(String.self, forKey: .id),
+                id:   try c.decode(String.self,     forKey: .id),
                 rect: try c.decode(WidgetRect.self, forKey: .rect)
             )
         case "Joystick":
             self = .Joystick(
-                id:   try c.decode(String.self, forKey: .id),
-                rect: try c.decode(WidgetRect.self, forKey: .rect),
+                id:   try c.decode(String.self,       forKey: .id),
+                rect: try c.decode(WidgetRect.self,   forKey: .rect),
                 mode: try c.decode(JoystickMode.self, forKey: .mode)
             )
         case "Trigger":
             self = .Trigger(
-                id:    try c.decode(String.self, forKey: .id),
-                label: try c.decode(String.self, forKey: .label),
+                id:    try c.decode(String.self,     forKey: .id),
+                label: try c.decode(String.self,     forKey: .label),
                 rect:  try c.decode(WidgetRect.self, forKey: .rect)
             )
         default:
@@ -188,7 +182,8 @@ struct Action: Codable {
     let input: PhysicalInput
 }
 
-struct Binding: Codable {
+// Renamed from Binding to WidgetBinding to avoid shadowing SwiftUI.Binding
+struct WidgetBinding: Codable {
     let widget_slot: String
     let action_id: String
 }
@@ -197,7 +192,7 @@ struct GameProfile: Codable {
     let game_title: String
     let widgets: [TouchWidget]
     let actions: [Action]
-    let bindings: [Binding]
+    let bindings: [WidgetBinding]
 
     func action(forSlot slot: String) -> Action? {
         guard let binding = bindings.first(where: { $0.widget_slot == slot }) else { return nil }

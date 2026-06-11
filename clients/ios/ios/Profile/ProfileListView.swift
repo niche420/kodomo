@@ -209,8 +209,7 @@ struct ProfileListView: View {
     }
 }
 
-// Navigation target — Identifiable so .navigationDestination(item:) works
-struct ProfileEditorTarget: Identifiable {
+struct ProfileEditorTarget: Identifiable, Hashable {
     let id = UUID()
     let name: String
 }

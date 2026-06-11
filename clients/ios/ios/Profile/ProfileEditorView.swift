@@ -90,7 +90,7 @@ struct ProfileEditorView: View {
             GeometryReader { geo in
                 CanvasView(
                     widgets: $widgets,
-                    selectedID: $selectedWidgetID,
+                    selectedID: selectedWidgetID,
                     canvasSize: geo.size,
                     onTapWidget: { id in
                         selectedWidgetID = id
@@ -197,7 +197,7 @@ struct ProfileEditorView: View {
         }
     }
 
-    // MARK: - Binding helpers
+    // MARK: - Slot helpers
 
     private func bindingSubset(for widget: EditorWidget) -> [String: PhysicalInput] {
         slotsFor(widget: widget).reduce(into: [:]) { dict, slot in
@@ -284,9 +284,9 @@ struct ProfileEditorView: View {
                                     x: rect.x, y: rect.y, w: rect.w, h: rect.h)
             }
         }
-        for binding in profile.bindings {
-            if let action = profile.actions.first(where: { $0.id == binding.action_id }) {
-                slotBindings[binding.widget_slot] = action.input
+        for wb in profile.bindings {
+            if let action = profile.actions.first(where: { $0.id == wb.action_id }) {
+                slotBindings[wb.widget_slot] = action.input
             }
         }
     }
@@ -307,7 +307,8 @@ struct ProfileEditorView: View {
     private func buildProfile() -> GameProfile {
         var touchWidgets: [TouchWidget] = []
         var actions: [Action] = []
-        var bindings: [WidgetBinding] = []
+        var widgetBindings: [WidgetBinding] = []
+
         for widget in widgets {
             let rect = WidgetRect(x: widget.x, y: widget.y, w: widget.w, h: widget.h)
             let mode = joystickModes[widget.id] ?? .GamepadStick(x: .LeftX, y: .LeftY)
@@ -324,21 +325,19 @@ struct ProfileEditorView: View {
             for slot in slotsFor(widget: widget) {
                 guard let input = slotBindings[slot] else { continue }
                 actions.append(Action(id: slot, label: slot, input: input))
-                bindings.append(WidgetBinding(widget_slot: slot, action_id: slot))
+                widgetBindings.append(WidgetBinding(widget_slot: slot, action_id: slot))
             }
         }
         return GameProfile(game_title: game.title, widgets: touchWidgets,
-                           actions: actions, bindings: bindings)
+                           actions: actions, bindings: widgetBindings)
     }
 }
 
 // MARK: - CanvasView
-// selectedID is passed as Binding<String?> but only read, not written, inside
-// CanvasView itself — writes happen via the callbacks. We keep it as a plain
-// optional so the compiler doesn't trip over optional-binding projection.
 
 struct CanvasView: View {
     @Binding var widgets: [EditorWidget]
+    // Plain value — CanvasView reads it, never writes it. Mutations go via callbacks.
     let selectedID: String?
     let canvasSize: CGSize
     let onTapWidget: (String) -> Void
@@ -350,7 +349,6 @@ struct CanvasView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { onTapBackground() }
 
-            // Grid
             Canvas { ctx, size in
                 let spacing: CGFloat = 40
                 var x: CGFloat = 0
@@ -372,7 +370,7 @@ struct CanvasView: View {
             }
             .allowsHitTesting(false)
 
-            // Use index-based ForEach so we can pass a Binding to each widget
+            // Index-based so we can project $widgets[idx] as a Binding<EditorWidget>
             ForEach(widgets.indices, id: \.self) { idx in
                 WidgetHandle(
                     widget: $widgets[idx],
@@ -519,8 +517,10 @@ struct BindingSheetView: View {
 
     // MARK: Joystick mode section
 
+    @ViewBuilder
     private var joystickModeSection: some View {
         Section("Joystick Mode") {
+            // Mode picker — backed by a String tag to avoid Binding<JoystickMode> complications
             Picker("Mode", selection: joystickModeTag) {
                 Text("Gamepad Stick").tag("gamepad")
                 Text("Mouse Look").tag("mouse")
@@ -528,31 +528,41 @@ struct BindingSheetView: View {
             }
             .pickerStyle(.segmented)
             .listRowBackground(Color.clear)
+        }
 
-            if case .GamepadStick(let cx, let cy) = workingMode {
-                // Explicit type annotations so the compiler can infer SelectionValue
-                Picker("X Axis", selection: Binding<GamepadAxis>(
-                    get: { cx },
-                    set: { newVal in workingMode = .GamepadStick(x: newVal, y: cy) }
-                )) {
-                    ForEach([GamepadAxis.LeftX, .LeftY, .RightX, .RightY], id: \.self) {
-                        Text($0.rawValue).tag($0)
-                    }
+        // Axis pickers shown only in GamepadStick mode, outside the Section
+        // so they appear as separate rows below the mode picker
+        if case .GamepadStick(let cx, let cy) = workingMode {
+            Section("Axes") {
+                axisPicker(label: "X Axis", current: cx) { newVal in
+                    workingMode = .GamepadStick(x: newVal, y: cy)
                 }
-                Picker("Y Axis", selection: Binding<GamepadAxis>(
-                    get: { cy },
-                    set: { newVal in workingMode = .GamepadStick(x: cx, y: newVal) }
-                )) {
-                    ForEach([GamepadAxis.LeftX, .LeftY, .RightX, .RightY], id: \.self) {
-                        Text($0.rawValue).tag($0)
-                    }
+                axisPicker(label: "Y Axis", current: cy) { newVal in
+                    workingMode = .GamepadStick(x: cx, y: newVal)
                 }
             }
         }
     }
 
+    // Extracted to avoid inline Binding<GamepadAxis> inference issues
+    private func axisPicker(
+        label: String,
+        current: GamepadAxis,
+        onSelect: @escaping (GamepadAxis) -> Void
+    ) -> some View {
+        let axes: [GamepadAxis] = [.LeftX, .LeftY, .RightX, .RightY]
+        return Picker(label, selection: Binding(
+            get: { current },
+            set: { onSelect($0) }
+        )) {
+            ForEach(axes, id: \.self) { axis in
+                Text(axis.rawValue).tag(axis)
+            }
+        }
+    }
+
     private var joystickModeTag: Binding<String> {
-        Binding<String>(
+        Binding(
             get: {
                 switch workingMode {
                 case .GamepadStick: return "gamepad"
@@ -571,7 +581,7 @@ struct BindingSheetView: View {
         )
     }
 
-    // MARK: Slot binding sections
+    // MARK: Slot sections
 
     private var bindingSections: some View {
         ForEach(currentSlots, id: \.slot) { item in
@@ -662,20 +672,18 @@ struct InputPickerSheet: View {
                 .pickerStyle(.segmented)
                 .padding()
 
-                List {
-                    ForEach(filteredItems, id: \.label) { item in
-                        Button(action: { onSelect(item.input) }) {
-                            HStack {
-                                Text(item.label)
-                                Spacer()
-                                if physicalInputsEqual(item.input, current) {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(.accentColor)
-                                }
+                List(filteredItems, id: \.label) { item in
+                    Button(action: { onSelect(item.input) }) {
+                        HStack {
+                            Text(item.label)
+                            Spacer()
+                            if physicalInputsEqual(item.input, current) {
+                                Image(systemName: "checkmark")
+                                        .foregroundStyle(Color.accentColor)
                             }
                         }
-                        .foregroundStyle(.primary)
                     }
+                    .foregroundStyle(.primary)
                 }
                 .searchable(text: $search, prompt: "Search")
             }
@@ -685,9 +693,9 @@ struct InputPickerSheet: View {
         .presentationDetents([.large])
     }
 
-    private struct PickerItem { let label: String; let input: PhysicalInput }
+    struct PickerItem { let label: String; let input: PhysicalInput }
 
-    private var allItems: [PickerItem] {
+    var allItems: [PickerItem] {
         switch category {
         case .keyboard:
             return allKeyEntries.map { PickerItem(label: $0.name, input: .Key($0.scanCode)) }
@@ -715,7 +723,7 @@ struct InputPickerSheet: View {
         }
     }
 
-    private var filteredItems: [PickerItem] {
+    var filteredItems: [PickerItem] {
         guard !search.isEmpty else { return allItems }
         return allItems.filter { $0.label.localizedCaseInsensitiveContains(search) }
     }

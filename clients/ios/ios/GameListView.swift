@@ -84,10 +84,18 @@ struct GameListView: View {
     }
 }
 
-struct GameTarget: Identifiable {
+struct GameTarget: Identifiable, Hashable {
     let id = UUID()
     let server: PairedServer
     let game: ServerAPI.GameEntry
+ 
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+    
+    static func == (lhs: GameTarget, rhs: GameTarget) -> Bool {
+        lhs.id == rhs.id
+    }
 }
 
 struct StreamInitView: View {

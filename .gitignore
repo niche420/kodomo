@@ -2,6 +2,7 @@
 .cargo/config.toml
 target/
 kd-server-data
+profiles
 
 # Windows/VS
 *.user

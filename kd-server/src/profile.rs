@@ -5,7 +5,7 @@ fn profile_dir(game_title: &str) -> PathBuf {
     let safe: String = game_title.chars()
         .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' })
         .collect();
-    PathBuf::from("kd-server-data/profiles").join(safe)
+    PathBuf::from("profiles").join(safe)
 }
 
 fn profile_path(game_title: &str, profile_name: &str) -> PathBuf {

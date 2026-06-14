@@ -260,8 +260,8 @@ impl InputInjector for DriverInjector {
 
 // GUID must match GUID_DEVINTERFACE_KD_INPUT in public.h
 const GUID_DEVINTERFACE_KD_INPUT: GUID = GUID::from_values(
-    0x4d36e96b, 0xe325, 0x11ce,
-    [0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18],
+    0x1280fb3f, 0x6d94, 0x46d9,
+    [0x8e, 0x9d, 0x80, 0x82, 0x3b, 0x02, 0xc4, 0xdb],
 );
 
 fn open_device_interface() -> anyhow::Result<HANDLE> {
@@ -292,10 +292,10 @@ fn open_device_interface() -> anyhow::Result<HANDLE> {
             &mut iface_data,
         );
 
-        if found.is_err() {
+        if let Some(err) = found.err() {
             SetupDiDestroyDeviceInfoList(dev_info).ok();
             return Err(anyhow::anyhow!(
-                "kd-input.sys not found — is the driver installed and running?"
+                format!("kd-input.sys not found: {}", err.to_string())
             ));
         }
 

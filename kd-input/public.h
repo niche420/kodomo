@@ -6,11 +6,10 @@
 // Device interface GUID
 // kd-server uses this to find the driver via SetupDiGetClassDevs.
 // Must be unique — generated once, never changed.
-//
-// {4D36E96B-E325-11CE-BFC1-08002BE10318}
+// 1280fb3f-6d94-46d9-8e9d-80823b02c4db
 DEFINE_GUID(GUID_DEVINTERFACE_KD_INPUT,
-    0x4d36e96b, 0xe325, 0x11ce,
-    0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18);
+    0x1280fb3f, 0x6d94, 0x46d9,
+    0x8e, 0x9d, 0x80, 0x82, 0x3b, 0x02, 0xc4, 0xdb);
 
 //
 // IOCTL codes

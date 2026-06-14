@@ -178,6 +178,7 @@ pub struct InputEvent {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "type")]
 pub enum InputEventKind {
     ButtonPress,
     ButtonRelease,

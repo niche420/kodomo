@@ -210,6 +210,7 @@ NTSTATUS KdEvtDevicePrepareHardware(
     UNREFERENCED_PARAMETER(ResourcesRaw);
     UNREFERENCED_PARAMETER(ResourcesTranslated);
 
+    KdPrint(("PrepareHardware entered\n"));
     NTSTATUS status = KdCreateVhfDevice(Device);
     if (!NT_SUCCESS(status)) {
         KdPrint(("kd-input: KdCreateVhfDevice failed: 0x%x\n", status));

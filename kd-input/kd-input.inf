@@ -17,14 +17,12 @@
 ;
 ; [Version] is required in every INF file.
 ; Signature must be "$Windows NT$" for kernel drivers.
-; Class and ClassGuid identify the device class — we use "System" which is
-; the generic class for software-only devices with no physical hardware.
-; The System class GUID is a well-known value defined by Microsoft.
+; Class and ClassGuid identify the device class — we use "HID".
 
 [Version]
 Signature   = "$Windows NT$"
-Class       = System
-ClassGuid   = {4D36E97D-E325-11CE-BFC1-08002BE10318}
+Class       = HIDClass
+ClassGuid   = {745A17A0-74D3-11D0-B6FE-00A0C90F57DA}
 Provider    = %ManufacturerName%
 DriverVer   = 06/07/2026,1.0.0.0
 CatalogFile = kd-input.cat
@@ -62,6 +60,12 @@ CopyFiles = KdInput_CopyFiles
 
 [KdInput_Install.NT.Services]
 AddService = KdInput, 0x00000002, KdInput_Service
+
+[KdInput_Install.NT.HW]
+AddReg = KdInput_AddReg
+
+[KdInput_AddReg]
+HKR,,"LowerFilters",0x00010000,"vhf"
 
 ; ── File copy ─────────────────────────────────────────────────────────────────
 ;

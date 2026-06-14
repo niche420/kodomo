@@ -33,10 +33,9 @@ impl Screen for HomeScreen {
                     .add_filter("Executable", &["exe"])
                     .pick_file()
                 {
-                    let title = path.file_name()
-                        .unwrap_or_default()
-                        .to_str()
-                        .unwrap_or_default()
+                    let title = path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("Unknown")
                         .to_string();
                     // Only add if not already registered
                     let mut persistent = &mut state.persistent;

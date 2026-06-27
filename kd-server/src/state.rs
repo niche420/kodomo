@@ -1,13 +1,14 @@
+use std::net::UdpSocket;
 use std::path::PathBuf;
 use crossbeam_channel::Sender;
 use serde::{Deserialize, Serialize};
 use kd_shared::game::GameMetadata;
+use kd_shared::profile::GameProfile;
 use crate::encode::EncodeConfig;
 use crate::network::NetworkConfig;
 use crate::ui::AppEvent;
 
 // ─── Persistent ───────────────────────────────────────────────────────────────
-// Everything in here survives restarts. Serialized by eframe.
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct PersistentState {
@@ -26,23 +27,24 @@ pub struct Game {
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
-// Lives only while a stream is active. Never persisted.
 
-#[derive(Debug, Clone)]
+pub struct ClientSession {
+    pub ip: String,
+    pub profile: Option<GameProfile>,
+    /// Already-bound UDP socket for this client's input stream.
+    pub input_socket: UdpSocket,
+}
+
 pub struct SessionState {
-    pub token: String,
-    pub client_ip: String,
     pub game_title: String,
+    pub exe_path: PathBuf,
+    pub clients: Vec<ClientSession>,
 }
 
 // ─── AppState ─────────────────────────────────────────────────────────────────
-// Runtime-only. Holds persistent state + transient UI/session state.
 
 pub struct AppState {
     pub persistent: PersistentState,
-    /// Which game is highlighted/selected in the UI. UI navigation only.
-    pub selected_game: Option<String>,
-    /// Set when a stream session is active, cleared when it ends.
     pub session: Option<SessionState>,
     pub(crate) ctx: egui::Context,
     event_sender: Sender<AppEvent>,
@@ -56,7 +58,6 @@ impl AppState {
     ) -> Self {
         Self {
             persistent,
-            selected_game: None,
             session: None,
             ctx,
             event_sender,

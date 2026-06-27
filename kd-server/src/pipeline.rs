@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Condvar, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,7 +12,7 @@ use crate::{capture, encode};
 use crate::capture::Frame;
 use crate::encode::EncodeConfig;
 use crate::network::NetworkConfig;
-use crate::state::SessionState;
+use crate::state::{ClientSession, SessionState};
 
 // ─── Internal queue types ─────────────────────────────────────────────────────
 
@@ -59,6 +60,7 @@ impl PacketQueue {
 pub struct Pipeline {
     frame_slot: Arc<FrameSlot>,
     packet_queue: Arc<PacketQueue>,
+    client_ips: Arc<Mutex<Vec<IpAddr>>>,
     threads: Vec<JoinHandle<()>>,
     stopped: Arc<AtomicBool>,
 }
@@ -68,53 +70,71 @@ impl Pipeline {
         Self {
             frame_slot: Arc::new(FrameSlot::default()),
             packet_queue: Arc::new(PacketQueue::new()),
+            client_ips: Arc::new(Mutex::new(Vec::new())),
             threads: vec![],
             stopped: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    /// Start all pipeline threads.
-    /// Takes only what it actually needs — no redundant config struct.
     pub fn start(
         &mut self,
         encode: &EncodeConfig,
         network: &NetworkConfig,
-        session: &SessionState,
-        profile: Option<GameProfile>,
+        session: SessionState,
     ) -> anyhow::Result<()> {
         self.stopped.store(false, Ordering::SeqCst);
 
-        // Capture thread
+        {
+            let mut ips = self.client_ips.lock().unwrap();
+            ips.clear();
+            for client in &session.clients {
+                if let Ok(ip) = IpAddr::from_str(&client.ip) {
+                    ips.push(ip);
+                }
+            }
+        }
+
         let slot = Arc::clone(&self.frame_slot);
         let stopped = Arc::clone(&self.stopped);
-        self.spawn(move || capture_thread(slot, stopped));
+        let exe_path = session.exe_path.clone();
+        self.spawn(move || capture_thread(exe_path, slot, stopped));
 
-        // Encode + packetize thread
         let slot = Arc::clone(&self.frame_slot);
         let queue = Arc::clone(&self.packet_queue);
         let stopped = Arc::clone(&self.stopped);
         let encode = encode.clone();
         self.spawn(move || encode_thread(encode, slot, queue, stopped));
 
-        // Network send thread
         let queue = Arc::clone(&self.packet_queue);
         let stopped = Arc::clone(&self.stopped);
-        let dest_ip = session.client_ip.clone();
+        let client_ips = Arc::clone(&self.client_ips);
         let video_port = network.video_port;
-        self.spawn(move || network_thread(dest_ip, video_port, queue, stopped));
+        self.spawn(move || network_thread(client_ips, video_port, queue, stopped));
 
-        // Input receive thread
-        let stopped = Arc::clone(&self.stopped);
-        let input_port = network.input_port;
-        self.spawn(move || input_thread(input_port, profile, stopped));
+        for client in session.clients {
+            self.spawn_input_thread(client.input_socket, client.profile);
+        }
 
         Ok(())
+    }
+
+    pub fn add_client(&mut self, client: ClientSession) {
+        if let Ok(ip) = IpAddr::from_str(&client.ip) {
+            self.client_ips.lock().unwrap().push(ip);
+        }
+        self.spawn_input_thread(client.input_socket, client.profile);
     }
 
     pub fn stop(&mut self) {
         self.stopped.store(true, Ordering::SeqCst);
         self.packet_queue.has_packet.notify_all();
         self.threads.drain(..).for_each(|t| { t.join().ok(); });
+        self.client_ips.lock().unwrap().clear();
+    }
+
+    fn spawn_input_thread(&mut self, socket: UdpSocket, profile: Option<GameProfile>) {
+        let stopped = Arc::clone(&self.stopped);
+        self.spawn(move || input_thread(socket, profile, stopped));
     }
 
     fn spawn<F: FnOnce() + Send + 'static>(&mut self, f: F) {
@@ -124,8 +144,8 @@ impl Pipeline {
 
 // ─── Thread functions ─────────────────────────────────────────────────────────
 
-fn capture_thread(slot: Arc<FrameSlot>, stopped: Arc<AtomicBool>) {
-    let mut capturer = match capture::create_capturer() {
+fn capture_thread(exe_path: PathBuf, slot: Arc<FrameSlot>, stopped: Arc<AtomicBool>) {
+    let mut capturer = match capture::create_capturer(&exe_path) {
         Ok(c) => c,
         Err(e) => { eprintln!("capture: {e}"); return; }
     };
@@ -177,7 +197,7 @@ fn encode_thread(
 }
 
 fn network_thread(
-    dest_ip: String,
+    client_ips: Arc<Mutex<Vec<IpAddr>>>,
     video_port: u16,
     queue: Arc<PacketQueue>,
     stopped: Arc<AtomicBool>,
@@ -186,22 +206,22 @@ fn network_thread(
         Ok(s) => s,
         Err(e) => { eprintln!("network: {e}"); return; }
     };
-    let dest_ip = match IpAddr::from_str(&dest_ip) {
-        Ok(ip) => ip,
-        Err(e) => { eprintln!("network: bad ip: {e}"); return; }
-    };
-    let dest = SocketAddr::new(dest_ip, video_port);
 
     while !stopped.load(Ordering::SeqCst) {
         let Some(packet) = queue.pop(&stopped) else { break; };
-        if let Err(e) = socket.send_to(&packet.encode(), dest) {
-            eprintln!("network: {e}");
+        let encoded = packet.encode();
+        let ips = client_ips.lock().unwrap().clone();
+        for ip in ips {
+            let dest = SocketAddr::new(ip, video_port);
+            if let Err(e) = socket.send_to(&encoded, dest) {
+                eprintln!("network: {e}");
+            }
         }
     }
 }
 
 fn input_thread(
-    input_port: u16,
+    socket: UdpSocket,
     profile: Option<GameProfile>,
     stopped: Arc<AtomicBool>,
 ) {
@@ -210,16 +230,13 @@ fn input_thread(
         return;
     };
 
-    let socket = match UdpSocket::bind(format!("0.0.0.0:{}", input_port)) {
-        Ok(s) => s,
-        Err(e) => { eprintln!("input: bind error: {e}"); return; }
-    };
     socket.set_read_timeout(Some(std::time::Duration::from_millis(100))).ok();
+
+    let port = socket.local_addr().map(|a| a.port()).unwrap_or(0);
+    eprintln!("input: listening on port {}", port);
 
     let mut injector = crate::input::create_injector();
     let mut buf = [0u8; 4096];
-
-    eprintln!("input: listening on port {}", input_port);
 
     while !stopped.load(Ordering::SeqCst) {
         match socket.recv(&mut buf) {

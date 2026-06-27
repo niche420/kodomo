@@ -1,5 +1,4 @@
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::Ordering;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -11,12 +10,9 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 use kd_shared::profile::GameProfile;
-use crate::network::HandshakeListener;
 use crate::profile::{delete_profile, list_profiles, load_profile, save_profile_named};
-use crate::state::{AppState, SessionState};
-use crate::{network, ui};
+use crate::state::AppState;
 use crate::ui::AppEvent;
-use crate::ui::screen::ScreenType;
 
 pub type SharedState = Arc<Mutex<AppState>>;
 
@@ -119,29 +115,24 @@ async fn post_stream(
 ) -> impl IntoResponse {
     let mut state = state.lock().unwrap();
 
-    if !state.persistent.games.iter().any(|g| g.metadata.title == body.game) {
-        return (StatusCode::NOT_FOUND, Json(json!({ "error": "Game not found" }))).into_response();
-    }
+    let game = match state.persistent.games.iter().find(|g| g.metadata.title == body.game) {
+        Some(g) => g,
+        None => return (StatusCode::NOT_FOUND, Json(json!({ "error": "Game not found" }))).into_response(),
+    };
 
     let token = Uuid::new_v4().to_string();
     let handshake_port = state.persistent.network.handshake_port;
-    let input_port = state.persistent.network.input_port;
+    let game_title = game.metadata.title.clone();
+    let exe_path = game.exe_path.clone();
 
-    // Store partial session
-    state.session = Some(SessionState {
-        token: token.clone(),
-        client_ip: String::new(),
-        game_title: body.game.clone(),
+    state.push_event(AppEvent::NavigateToConnect {
+        game_title,
+        exe_path,
+        token: Some(token.clone()),
     });
-    state.selected_game = Some(body.game);
-
-    // Start listening BEFORE sending the response so the client
-    // doesn't try to connect before we're ready
-    state.push_event(AppEvent::ScreenTransition(ScreenType::Connect));
 
     Json(json!({
         "token": token,
         "handshake_port": handshake_port,
-        "input_port": input_port,
     })).into_response()
 }

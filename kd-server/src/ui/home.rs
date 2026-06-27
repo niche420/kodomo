@@ -1,26 +1,23 @@
-use std::cell::RefCell;
-use std::ops::Deref;
-use std::rc::Rc;
 use kd_shared::game::GameMetadata;
 use crate::http::SharedState;
 use crate::state::Game;
-use crate::ui::{AppEvent, AppState};
+use crate::ui::AppEvent;
 use crate::ui::screen::{Screen, ScreenType};
+use std::any::Any;
 
 pub struct HomeScreen {
     state: SharedState,
 }
 
 impl HomeScreen {
-    pub fn new(state: SharedState) -> HomeScreen {
+    pub fn new(state: SharedState) -> Self {
         Self { state }
     }
 }
 
 impl Screen for HomeScreen {
-    fn get_type(&self) -> ScreenType {
-        ScreenType::Home
-    }
+    fn get_type(&self) -> ScreenType { ScreenType::Home }
+    fn as_any(&self) -> &dyn Any { self }
 
     fn render(&mut self, ui: &mut egui::Ui) {
         let mut state = self.state.lock().unwrap();
@@ -37,10 +34,8 @@ impl Screen for HomeScreen {
                         .and_then(|s| s.to_str())
                         .unwrap_or("Unknown")
                         .to_string();
-                    // Only add if not already registered
-                    let mut persistent = &mut state.persistent;
-                    if !persistent.games.iter().any(|g| g.exe_path == path) {
-                        persistent.games.push(Game {
+                    if !state.persistent.games.iter().any(|g| g.exe_path == path) {
+                        state.persistent.games.push(Game {
                             metadata: GameMetadata { title },
                             thumbnail: None,
                             exe_path: path,
@@ -54,20 +49,16 @@ impl Screen for HomeScreen {
 
         ui.separator();
 
-        // Collect indices to delete outside the loop to avoid borrow issues
         let mut to_delete: Option<usize> = None;
-        let mut stream_game: Option<String> = None;
+        let mut navigate: Option<(String, std::path::PathBuf)> = None;
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (i, game) in state.persistent.games.iter().enumerate() {
                 ui.horizontal(|ui| {
-                    // Game title — click to stream
                     if ui.selectable_label(false, &game.metadata.title).clicked() {
-                        stream_game = Some(game.metadata.title.clone());
+                        navigate = Some((game.metadata.title.clone(), game.exe_path.clone()));
                     }
-
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Trash — unregister game
                         if ui.button("🗑").on_hover_text("Unregister game").clicked() {
                             to_delete = Some(i);
                         }
@@ -76,15 +67,16 @@ impl Screen for HomeScreen {
             }
         });
 
-        // Handle deletion
         if let Some(i) = to_delete {
             state.persistent.games.remove(i);
         }
 
-        // Handle stream navigation
-        if let Some(title) = stream_game {
-            state.selected_game = Some(title);
-            state.push_event(AppEvent::ScreenTransition(ScreenType::Connect));
+        if let Some((game_title, exe_path)) = navigate {
+            state.push_event(AppEvent::NavigateToConnect {
+                game_title,
+                exe_path,
+                token: None,
+            });
         }
     }
 }

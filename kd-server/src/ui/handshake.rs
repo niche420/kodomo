@@ -1,6 +1,7 @@
 use std::net::UdpSocket;
+use std::path::{Path, PathBuf};
+use std::any::Any;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
 use eframe::emath::{Pos2, Rect, Vec2};
 use egui::{Color32, Sense, Ui};
 use qrcode::QrCode;
@@ -8,32 +9,71 @@ use uuid::Uuid;
 use kd_shared::connect::ConnectParams;
 use crate::http::SharedState;
 use crate::network::HandshakeListener;
-use crate::state::SessionState;
+use crate::profile::load_profile;
+use crate::state::ClientSession;
 use crate::ui::AppEvent;
 use crate::ui::screen::{Screen, ScreenType};
 
-pub struct ConnectScreen {
+pub struct HandshakeScreen {
     state: SharedState,
-    listener_token: Option<String>,
+    game_title: String,
+    exe_path: PathBuf,
+    token: String,
 }
 
-impl ConnectScreen {
-    pub fn new(state: SharedState) -> Self {
-        Self {
-            state,
-            connected: Arc::new(AtomicBool::new(false)),
-            client_ip: Arc::new(Mutex::new(None)),
-            listener_token: None,
-        }
+impl HandshakeScreen {
+    pub fn new(
+        state: SharedState,
+        game_title: String,
+        exe_path: PathBuf,
+        token: Option<String>,
+    ) -> Self {
+        let token = token.unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        let (handshake_port, ctx) = {
+            let s = state.lock().unwrap();
+            (s.persistent.network.handshake_port, s.ctx.clone())
+        };
+
+        let token_clone = token.clone();
+        let game_title_clone = game_title.clone();
+        let state_clone = state.clone();
+
+        std::thread::spawn(move || {
+            loop {
+                let listener = HandshakeListener::new(handshake_port, token_clone.clone());
+                match listener.listen() {
+                    Ok(result) => {
+                        let profile = {
+                            let s = state_clone.lock().unwrap();
+                            s.persistent.games
+                                .iter()
+                                .find(|g| g.metadata.title == game_title_clone)
+                                .and_then(|g| g.active_profile.as_deref())
+                                .and_then(|name| load_profile(&game_title_clone, name))
+                        };
+                        state_clone.lock().unwrap().push_event(AppEvent::ClientConnected(
+                            ClientSession {
+                                ip: result.client_ip.to_string(),
+                                profile,
+                                input_socket: result.input_socket,
+                            }
+                        ));
+                        ctx.request_repaint();
+                    }
+                    Err(e) => eprintln!("handshake: listener error: {e}"),
+                }
+            }
+        });
+
+        Self { state, game_title, exe_path, token }
     }
+
+    pub fn game_title(&self) -> &str { &self.game_title }
+    pub fn exe_path(&self) -> &Path  { &self.exe_path }
 }
 
-impl Screen for ConnectScreen {
-    fn on_show(&mut self) {
-
-    }
-
-
+impl Screen for HandshakeScreen {
     fn render(&mut self, ui: &mut Ui) {
         let mut state = self.state.lock().unwrap();
 
@@ -41,44 +81,27 @@ impl Screen for ConnectScreen {
             if ui.button("<- Back").clicked() {
                 state.push_event(AppEvent::ScreenTransition(ScreenType::Home));
             }
-            ui.heading("Connect");
+            ui.heading("Waiting for connection");
         });
-
-        if self.connected.load(Ordering::SeqCst) {
-            if let Some(ip) = self.client_ip.lock().unwrap().clone() {
-                // Fill in the client IP now that we have it
-                if let Some(session) = state.session.as_mut() {
-                    session.client_ip = ip;
-                }
-            }
-            state.push_event(AppEvent::ScreenTransition(ScreenType::Session));
-        }
 
         ui.separator();
 
         let ip = get_lan_ip().unwrap_or_else(|| "127.0.0.1".to_string());
-        let game_title = state.selected_game.clone().unwrap_or_default();
-        let game = state.persistent.games.iter()
-            .find(|g| g.metadata.title == game_title)
-            .unwrap();
-
-        ui.label(format!("Game:    {}", game.metadata.title));
+        ui.label(format!("Game:    {}", self.game_title));
         ui.label(format!("Address: {}:{}", ip, state.persistent.network.video_port));
-        let token = state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
-        ui.label(format!("Session: {}", &token[..8.min(token.len())]));
+        ui.label(format!("Session: {}", &self.token[..8.min(self.token.len())]));
 
         ui.add_space(16.0);
         ui.label("Scan with Kodomo on your iPhone:");
         ui.add_space(8.0);
 
         let params = ConnectParams::new(
-            ip.clone(),
+            ip,
             state.persistent.network.video_port,
-            token.clone(),
-            game.metadata.title.clone(),
+            self.token.clone(),
+            self.game_title.clone(),
             state.persistent.network.handshake_port,
             state.persistent.network.http_port,
-            state.persistent.network.input_port,
         );
         let url = params.to_url();
 
@@ -94,9 +117,8 @@ impl Screen for ConnectScreen {
         }
     }
 
-    fn get_type(&self) -> ScreenType {
-        ScreenType::Connect
-    }
+    fn get_type(&self) -> ScreenType { ScreenType::Handshake }
+    fn as_any(&self) -> &dyn Any { self }
 }
 
 fn draw_qr_code(ui: &mut egui::Ui, code: &QrCode, cell_size: f32) {

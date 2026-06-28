@@ -5,7 +5,7 @@ class HandshakeClient {
     private let host: String
     private let port: UInt16
     private let token: String
-    var onConnected: (() -> Void)?
+    var onConnected: ((UInt16) -> Void)?  // passes back the assigned input port
     var onFailed: (() -> Void)?
     private var connection: NWConnection?
     private var receiveBuffer = Data()
@@ -71,10 +71,16 @@ class HandshakeClient {
     }
 
     private func handleOk(line: String?) {
-        guard line?.trimmingCharacters(in: .whitespacesAndNewlines) == "ok" else {
+        guard let line = line?.trimmingCharacters(in: .whitespacesAndNewlines) else {
             onFailed?()
             return
         }
-        onConnected?()
+        // Server sends "ok:<input_port>"
+        guard line.hasPrefix("ok:"),
+              let inputPort = UInt16(line.dropFirst(3)) else {
+            onFailed?()
+            return
+        }
+        onConnected?(inputPort)
     }
 }

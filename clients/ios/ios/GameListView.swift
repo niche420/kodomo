@@ -36,16 +36,11 @@ struct GameListView: View {
                 List(games) { game in
                     HStack {
                         VStack(alignment: .leading) {
-                            Text(game.title)
-                                .font(.headline)
+                            Text(game.title).font(.headline)
                             if let profile = game.active_profile {
-                                Text("Profile: \(profile)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                Text("Profile: \(profile)").font(.caption).foregroundStyle(.secondary)
                             } else {
-                                Text("No active profile")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
+                                Text("No active profile").font(.caption).foregroundStyle(.tertiary)
                             }
                         }
                         Spacer()
@@ -53,7 +48,6 @@ struct GameListView: View {
                             profilesTarget = GameTarget(server: server, game: game)
                         }
                         .buttonStyle(.bordered)
-                     
                         Button("Stream") {
                             streamTarget = GameTarget(server: server, game: game)
                         }
@@ -88,14 +82,9 @@ struct GameTarget: Identifiable, Hashable {
     let id = UUID()
     let server: PairedServer
     let game: ServerAPI.GameEntry
- 
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-    }
-    
-    static func == (lhs: GameTarget, rhs: GameTarget) -> Bool {
-        lhs.id == rhs.id
-    }
+
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    static func == (lhs: GameTarget, rhs: GameTarget) -> Bool { lhs.id == rhs.id }
 }
 
 struct StreamInitView: View {
@@ -115,26 +104,18 @@ struct StreamInitView: View {
                 StreamView(params: params, handshakeClient: handshakeClient, profile: profile)
             } else if failed {
                 VStack(spacing: 16) {
-                    Image(systemName: "xmark.circle")
-                        .font(.system(size: 50))
-                        .foregroundStyle(.red)
-                    Text("Connection failed")
-                        .font(.title2)
+                    Image(systemName: "xmark.circle").font(.system(size: 50)).foregroundStyle(.red)
+                    Text("Connection failed").font(.title2)
                     if let msg = errorMessage {
-                        Text(msg)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
+                        Text(msg).font(.caption).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center).padding(.horizontal)
                     }
-                    Button("Dismiss") { dismiss() }
-                        .buttonStyle(.borderedProminent)
+                    Button("Dismiss") { dismiss() }.buttonStyle(.borderedProminent)
                 }
             } else {
                 VStack(spacing: 16) {
                     ProgressView()
-                    Text("Connecting to \(target.game.title)...")
-                        .foregroundStyle(.secondary)
+                    Text("Connecting to \(target.game.title)...").foregroundStyle(.secondary)
                 }
             }
         }
@@ -142,7 +123,6 @@ struct StreamInitView: View {
     }
 
     private func startStream() async {
-        // 1. Ask the server to prepare a session token for this game
         let streamResponse: StreamResponse
         do {
             streamResponse = try await requestStream()
@@ -152,26 +132,21 @@ struct StreamInitView: View {
             return
         }
 
-        // 2. Fetch the active profile for this game (non-fatal if missing)
         if let profileName = target.game.active_profile {
-            profile = try? await api.fetchProfile(
-                game: target.game.title,
-                name: profileName
-            )
+            profile = try? await api.fetchProfile(game: target.game.title, name: profileName)
         }
 
-        // 3. Run the TCP handshake using the token the server gave us
         let client = HandshakeClient(
             host: target.server.ip,
             port: streamResponse.handshakePort,
             token: streamResponse.token
         )
         handshakeClient = client
-        client.onConnected = {
+        client.onConnected = { inputPort in
             connectParams = ConnectParams(
                 ip: target.server.ip,
                 port: target.server.videoPort,
-                inputPort: streamResponse.inputPort,
+                inputPort: inputPort,
                 session: streamResponse.token,
                 game: target.game.title
             )
@@ -200,7 +175,5 @@ struct StreamInitView: View {
 private struct StreamResponse: Codable {
     let token: String
     let handshake_port: UInt16
-    let input_port: UInt16
     var handshakePort: UInt16 { handshake_port }
-    var inputPort: UInt16 { input_port }
 }

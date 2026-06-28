@@ -36,19 +36,11 @@ struct HomeView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Image(systemName: "display")
-                .font(.system(size: 60))
-                .foregroundStyle(.secondary)
-            Text("No servers paired")
-                .font(.title2)
+            Image(systemName: "display").font(.system(size: 60)).foregroundStyle(.secondary)
+            Text("No servers paired").font(.title2)
             Text("Open Kodomo on your PC and tap the QR button to pair.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 40)
-            Button("Scan QR Code") {
-                showScanner = true
-            }
-            .buttonStyle(.borderedProminent)
+                .multilineTextAlignment(.center).foregroundStyle(.secondary).padding(.horizontal, 40)
+            Button("Scan QR Code") { showScanner = true }.buttonStyle(.borderedProminent)
         }
     }
 
@@ -57,18 +49,13 @@ struct HomeView: View {
             ForEach(serverStore.servers) { server in
                 Button(action: { selectedServer = server }) {
                     HStack {
-                        Image(systemName: "display")
-                            .foregroundStyle(.secondary)
+                        Image(systemName: "display").foregroundStyle(.secondary)
                         VStack(alignment: .leading) {
-                            Text(server.name)
-                                .font(.headline)
-                            Text(server.ip)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Text(server.name).font(.headline)
+                            Text(server.ip).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.tertiary)
+                        Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                     }
                 }
                 .foregroundStyle(.primary)
@@ -78,30 +65,20 @@ struct HomeView: View {
     }
 }
 
-/// Sheet that wraps the QR scanner and handles the result.
 struct ScannerSheet: View {
     var onPaired: (PairedServer) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var error: String? = nil
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                QRScannerView { result in
-                    let server = PairedServer(
-                        ip: result.ip,
-                        httpPort: result.httpPort,
-                        handshakePort: result.handshakePort,
-                        videoPort: result.videoPort
-                    )
-                    onPaired(server)
-                }
-                if let error {
-                    Text(error)
-                        .padding()
-                        .background(.regularMaterial)
-                        .cornerRadius(8)
-                }
+            QRScannerView { result in
+                let server = PairedServer(
+                    ip: result.ip,
+                    httpPort: result.httpPort,
+                    handshakePort: result.handshakePort,
+                    videoPort: result.videoPort
+                )
+                onPaired(server)
             }
             .navigationTitle("Scan QR Code")
             .navigationBarTitleDisplayMode(.inline)

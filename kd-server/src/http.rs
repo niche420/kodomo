@@ -12,7 +12,6 @@ use uuid::Uuid;
 use kd_shared::profile::GameProfile;
 use crate::profile::{delete_profile, list_profiles, load_profile, save_profile_named};
 use crate::state::AppState;
-use crate::ui::AppEvent;
 
 pub type SharedState = Arc<Mutex<AppState>>;
 
@@ -25,7 +24,6 @@ pub async fn serve(state: SharedState) {
         .route("/games/{title}/profiles/{name}", delete(del_profile))
         .route("/games/{title}/active", get(get_active))
         .route("/games/{title}/active", put(put_active))
-        .route("/stream", post(post_stream))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:7000").await.unwrap();
@@ -102,37 +100,4 @@ async fn put_active(
         Some(game) => { game.active_profile = Some(name); StatusCode::OK }
         None => StatusCode::NOT_FOUND,
     }
-}
-
-#[derive(Deserialize)]
-struct StreamRequest {
-    game: String,
-}
-
-async fn post_stream(
-    State(state): State<SharedState>,
-    Json(body): Json<StreamRequest>,
-) -> impl IntoResponse {
-    let mut state = state.lock().unwrap();
-
-    let game = match state.persistent.games.iter().find(|g| g.metadata.title == body.game) {
-        Some(g) => g,
-        None => return (StatusCode::NOT_FOUND, Json(json!({ "error": "Game not found" }))).into_response(),
-    };
-
-    let token = Uuid::new_v4().to_string();
-    let handshake_port = state.persistent.network.handshake_port;
-    let game_title = game.metadata.title.clone();
-    let exe_path = game.exe_path.clone();
-
-    state.push_event(AppEvent::NavigateToConnect {
-        game_title,
-        exe_path,
-        token: Some(token.clone()),
-    });
-
-    Json(json!({
-        "token": token,
-        "handshake_port": handshake_port,
-    })).into_response()
 }

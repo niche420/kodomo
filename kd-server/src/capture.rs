@@ -2,6 +2,7 @@
 mod windows;
 #[cfg(target_os = "macos")]
 mod mac;
+pub mod worker;
 
 use std::path::PathBuf;
 

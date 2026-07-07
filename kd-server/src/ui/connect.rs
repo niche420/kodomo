@@ -1,90 +1,93 @@
-use std::net::UdpSocket;
+use std::any::Any;
+use std::io::{BufRead, BufReader, Write};
+use std::net::{SocketAddr, TcpListener, UdpSocket};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
 use eframe::emath::{Pos2, Rect, Vec2};
 use egui::{Color32, Sense, Ui};
 use qrcode::QrCode;
 use uuid::Uuid;
 use kd_shared::connect::ConnectParams;
 use crate::http::SharedState;
-use crate::network::HandshakeListener;
-use crate::state::SessionState;
+use crate::state::Client;
 use crate::ui::AppEvent;
 use crate::ui::screen::{Screen, ScreenType};
 
 pub struct ConnectScreen {
     state: SharedState,
-    listener_token: Option<String>,
+    token: Uuid
 }
 
 impl ConnectScreen {
-    pub fn new(state: SharedState) -> Self {
+    pub fn new(state: SharedState) -> ConnectScreen {
+        let token = Uuid::new_v4();
+        spawn_handshake_listener(state.clone(), token);
+
         Self {
             state,
-            connected: Arc::new(AtomicBool::new(false)),
-            client_ip: Arc::new(Mutex::new(None)),
-            listener_token: None,
+            token
         }
     }
 }
 
 impl Screen for ConnectScreen {
-    fn on_show(&mut self) {
-
-    }
-
-
     fn render(&mut self, ui: &mut Ui) {
-        let mut state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap();
 
-        ui.horizontal(|ui| {
-            if ui.button("<- Back").clicked() {
-                state.push_event(AppEvent::ScreenTransition(ScreenType::Home));
-            }
-            ui.heading("Connect");
-        });
-
-        if self.connected.load(Ordering::SeqCst) {
-            if let Some(ip) = self.client_ip.lock().unwrap().clone() {
-                // Fill in the client IP now that we have it
-                if let Some(session) = state.session.as_mut() {
-                    session.client_ip = ip;
-                }
-            }
-            state.push_event(AppEvent::ScreenTransition(ScreenType::Session));
-        }
-
+        ui.heading("Connect");
         ui.separator();
 
+        // Connection info
         let ip = get_lan_ip().unwrap_or_else(|| "127.0.0.1".to_string());
-        let game_title = state.selected_game.clone().unwrap_or_default();
-        let game = state.persistent.games.iter()
-            .find(|g| g.metadata.title == game_title)
-            .unwrap();
+        ui.label(format!("Address: {}", ip));
+        ui.label(format!("Session: {}", &self.token.to_string()));
+        ui.add_space(8.0);
 
-        ui.label(format!("Game:    {}", game.metadata.title));
-        ui.label(format!("Address: {}:{}", ip, state.persistent.network.video_port));
-        let token = state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
-        ui.label(format!("Session: {}", &token[..8.min(token.len())]));
+        // Connected clients
+        let pending_count = state.pending_clients.len();
+        let active_count: usize = state
+            .session
+            .as_ref()
+            .map_or(0, |session| session.num_clients());
+        let total: usize = pending_count + active_count;
+
+        if total == 0 {
+            ui.label("No clients connected.");
+        } else {
+            ui.label(format!("{} client(s) connected:", total));
+            for client in &state.pending_clients {
+                ui.horizontal(|ui| {
+                    ui.colored_label(Color32::YELLOW, "●");
+                    ui.label(format!("{} (waiting)", client.ip));
+                });
+            }
+            if let Some(session) = state.session.as_ref() {
+                for client in session.clients.lock().unwrap().iter() {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(Color32::GREEN, "●");
+                        ui.label(format!("{} (streaming)", client.ip));
+                    });
+                }
+            }
+        }
 
         ui.add_space(16.0);
-        ui.label("Scan with Kodomo on your iPhone:");
+        ui.label("Scan to connect:");
         ui.add_space(8.0);
 
         let params = ConnectParams::new(
-            ip.clone(),
+            ip,
             state.persistent.network.video_port,
-            token.clone(),
-            game.metadata.title.clone(),
+            self.token.to_string(),
             state.persistent.network.handshake_port,
             state.persistent.network.http_port,
-            state.persistent.network.input_port,
         );
         let url = params.to_url();
+        drop(state);
 
         match QrCode::new(url.as_bytes()) {
             Ok(code) => {
-                draw_qr_code(ui, &code, 7.0);
+                draw_qr_code(ui, &code, 6.0);
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new(&url).small().weak().monospace());
             }
@@ -95,9 +98,11 @@ impl Screen for ConnectScreen {
     }
 
     fn get_type(&self) -> ScreenType {
-        ScreenType::Connect
+        todo!()
     }
 }
+
+
 
 fn draw_qr_code(ui: &mut egui::Ui, code: &QrCode, cell_size: f32) {
     let modules = code.width();
@@ -126,4 +131,74 @@ fn get_lan_ip() -> Option<String> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("8.8.8.8:80").ok()?;
     Some(socket.local_addr().ok()?.ip().to_string())
+}
+
+fn spawn_handshake_listener(state: SharedState, token: Uuid) {
+    let (handshake_port, input_port) = if let Ok(state) = state.lock() {
+        (state.persistent.network.handshake_port, state.persistent.network.input_port)
+    } else {
+        eprintln!("Failed to lock on state");
+        return;
+    };
+    let state_clone = state.clone();
+
+    std::thread::spawn(move || {
+        let listener = match TcpListener::bind(format!("0.0.0.0:{}", handshake_port)) {
+            Ok(l) => l,
+            Err(e) => { eprintln!("handshake: failed to bind: {e}"); return; }
+        };
+        eprintln!("handshake: listening on port {}", handshake_port);
+
+        loop {
+            match listener.accept() {
+                Ok((mut stream, addr)) => {
+
+                    // Handle each connection on its own thread so the
+                    // listener can immediately accept the next one
+                    let state_clone = state_clone.clone();
+                    std::thread::spawn(move || {
+                        let reader_stream = match stream.try_clone() {
+                            Ok(s) => s,
+                            Err(e) => { eprintln!("handshake: clone error: {e}"); return; }
+                        };
+                        let mut reader = BufReader::new(reader_stream);
+
+                        let mut received_token_str = String::new();
+                        if reader.read_line(&mut received_token_str).is_err() { return; }
+                        if let Ok(received_token) = Uuid::from_str(received_token_str.trim()) {
+                            if received_token != token {
+                                stream.write_all(b"err\n");
+                                eprintln!("handshake: token mismatch from {}", addr.ip());
+                                return;
+                            }
+                        }
+                        else {
+                            let _ = stream.write_all(b"err\n");
+                            eprintln!("handshake: token mismatch from {}", addr.ip());
+                            return;
+                        }
+
+                        if stream.write_all(format!("ok:{}\n", input_port).as_bytes()).is_err() {
+                            return;
+                        }
+
+                        let mut ready = String::new();
+                        if reader.read_line(&mut ready).is_err() { return; }
+                        if ready.trim() != "ready" { return; }
+
+                        let ip = addr.ip();
+                        eprintln!("handshake: client connected: {}", ip);
+
+                        let mut state = state_clone.lock().unwrap();
+                        state.push_event(AppEvent::ClientConnected(Client {
+                            // The port is unknown until the client sends its first UDP packet.
+                            ip: addr.ip(),
+                            profile: None,
+                        }));
+                    });
+                }
+                Err(e) => eprintln!("handshake: accept error: {e}"),
+            }
+        }
+    });
 }

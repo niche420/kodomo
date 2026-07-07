@@ -3,13 +3,13 @@ use std::sync::{Arc, Mutex};
 
 mod capture;
 mod encode;
-mod pipeline;
 mod network;
 mod ui;
 mod http;
 mod profile;
 mod state;
 mod input;
+mod session;
 
 fn main() -> anyhow::Result<()> {
     // Spawn HTTP server on a background thread before eframe starts.

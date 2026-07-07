@@ -1,37 +1,37 @@
-mod home;
-mod handshake;
-pub(crate) mod screen;
+mod games;
+mod connect;
+mod screen;
 mod session;
+mod sidebar;
 
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use eframe::App;
-use crate::pipeline::Pipeline;
-use crate::state::{AppState, ClientSession, PersistentState, SessionState};
-use crate::ui::handshake::HandshakeScreen;
-use crate::ui::home::HomeScreen;
+use std::path::PathBuf;
+use crate::http::SharedState;
+use crate::session::Session;
+use crate::state::{AppState, Client, Game, PersistentState};
+use crate::ui::connect::ConnectScreen;
+use crate::ui::games::GamesScreen;
 use crate::ui::screen::{Screen, ScreenType};
 use crate::ui::session::SessionScreen;
+use crate::ui::sidebar::Sidebar;
 
 pub enum AppEvent {
-    NavigateToConnect { game_title: String, exe_path: PathBuf, token: Option<String> },
-    ClientConnected(ClientSession),
-    ScreenTransition(ScreenType),
-    PipelineEnd,
+    ClientConnected(Client),
+    StartSession(Game),
+    EndSession,
+    ScreenTransition(ScreenType)
 }
 
 pub struct ServerApp {
-    state: Arc<Mutex<AppState>>,
-    current_screen: Box<dyn Screen>,
-    pipeline: Pipeline,
+    state: SharedState,
     event_receiver: crossbeam_channel::Receiver<AppEvent>,
-    /// Stash for the current handshake — needed to build SessionState when
-    /// the first client connects. Cleared once the pipeline starts.
-    pending_game: Option<(String, PathBuf)>,
+    sidebar: Sidebar,
+    screens: Vec<Box<dyn Screen>>,
+    current_screen: ScreenType,
 }
 
 impl ServerApp {
-    pub(crate) fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let (send, recv) = crossbeam_channel::unbounded();
         let persistent = if let Some(storage) = cc.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
@@ -40,12 +40,18 @@ impl ServerApp {
         };
         let state = Arc::new(Mutex::new(AppState::new(persistent, send, cc.egui_ctx.clone())));
 
+        let screens: Vec<Box<dyn Screen>> = vec![
+            Box::new(GamesScreen::new(state.clone())),
+            Box::new(ConnectScreen::new(state.clone())),
+            Box::new(SessionScreen::new(state.clone())),
+        ];
+
         Self {
             state: state.clone(),
-            current_screen: Box::new(HomeScreen::new(state)),
-            pipeline: Pipeline::new(),
             event_receiver: recv,
-            pending_game: None,
+            sidebar: Sidebar::new(state.clone()),
+            screens,
+            current_screen: ScreenType::Games
         }
     }
 
@@ -55,85 +61,39 @@ impl ServerApp {
 
     fn process_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = self.event_receiver.try_recv() {
+            let mut state = self.state.lock().unwrap();
             match event {
-                AppEvent::NavigateToConnect { game_title, exe_path, token } => {
-                    self.pending_game = Some((game_title.clone(), exe_path.clone()));
-                    self.current_screen = Box::new(
-                        HandshakeScreen::new(self.state.clone(), game_title, exe_path, token)
-                    );
-                    ctx.request_repaint();
-                }
-
-                AppEvent::ClientConnected(client) => {
-                    let mut state = self.state.lock().unwrap();
-                    match state.session.as_mut() {
-                        Some(session) => {
-                            // Additional client joining an active stream
-                            session.clients.push(ClientSession {
-                                ip: client.ip.clone(),
-                                profile: client.profile.clone(),
-                                input_socket: client.input_socket.try_clone()
-                                    .expect("failed to clone input socket"),
-                            });
-                            drop(state);
-                            self.pipeline.add_client(client);
-                        }
-                        None => {
-                            // First client — start pipeline
-                            let (game_title, exe_path) = self.pending_game.take()
-                                .expect("ClientConnected with no pending game");
-
-                            let session = SessionState {
-                                game_title,
-                                exe_path,
-                                clients: vec![client],
-                            };
-                            state.session = Some(SessionState {
-                                game_title: session.game_title.clone(),
-                                exe_path: session.exe_path.clone(),
-                                clients: vec![],
-                            });
-                            drop(state);
-
-                            self.pipeline.start(
-                                &self.state.lock().unwrap().persistent.encode,
-                                &self.state.lock().unwrap().persistent.network,
-                                session,
-                            ).ok();
-
-                            self.current_screen = Box::new(SessionScreen::new(self.state.clone()));
-                            ctx.request_repaint();
-                        }
+                AppEvent::ScreenTransition(screen) => {
+                    drop(state);
+                    if self.current_screen != screen {
+                        self.current_screen = screen;
+                        self.screens[self.current_screen as usize].on_show();
                     }
                 }
-
-                AppEvent::ScreenTransition(next) => {
-                    self.current_screen = match next {
-                        ScreenType::Home    => Box::new(HomeScreen::new(self.state.clone())),
-                        ScreenType::Session => Box::new(SessionScreen::new(self.state.clone())),
-                        ScreenType::Handshake => panic!("use NavigateToConnect"),
-                    };
-                    ctx.request_repaint();
+                AppEvent::ClientConnected(client) => {
+                    state.add_client(client);
                 }
-
-                AppEvent::PipelineEnd => {
-                    self.pipeline.stop();
-                    self.state.lock().unwrap().session = None;
-                    self.pending_game = None;
-                    self.current_screen = Box::new(HomeScreen::new(self.state.clone()));
-                    ctx.request_repaint();
+                AppEvent::StartSession(game) => {
+                    state.start_session(game);
+                }
+                AppEvent::EndSession => {
+                    state.stop_session();
                 }
             }
+
+            ctx.request_repaint();
         }
     }
 }
 
 impl eframe::App for ServerApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show_inside(ui, |ui| {
-            self.current_screen.render(ui);
-        });
         self.process_events(ui.ctx());
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.sidebar.render(ui);
+            self.screens[self.current_screen as usize].render(ui);
+        });
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

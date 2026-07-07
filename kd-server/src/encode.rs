@@ -2,6 +2,7 @@
 mod windows;
 #[cfg(target_os = "macos")]
 mod mac;
+pub mod worker;
 
 use serde::{Deserialize, Serialize};
 use crate::capture::Frame;

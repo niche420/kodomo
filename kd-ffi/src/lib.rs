@@ -1,5 +1,4 @@
-use std::ptr::{null, null_mut};
-use libc::c_char;
+use std::ptr::null_mut;
 use kd_shared::rtp::packetizer::Depacketizer;
 use kd_shared::rtp::RtpPacket;
 
@@ -10,9 +9,9 @@ extern "C" fn kd_depacketizer_create() -> *mut Depacketizer {
 }
 
 #[unsafe(no_mangle)]
-unsafe extern "C" fn kd_depacketizer_destroy(raw: *mut Depacketizer) {
+unsafe extern "C" fn kd_depacketizer_destroy(raw: *mut Depacketizer) { unsafe {
     let _ = Box::from_raw(raw);
-}
+}}
 
 #[repr(C)]
 struct KdNalUnits {
@@ -22,7 +21,7 @@ struct KdNalUnits {
 }
 
 #[unsafe(no_mangle)]
-unsafe extern "C" fn kd_depacketizer_push(raw: *mut Depacketizer, data: *const u8, len: usize) -> KdNalUnits {
+unsafe extern "C" fn kd_depacketizer_push(raw: *mut Depacketizer, data: *const u8, len: usize) -> KdNalUnits { unsafe {
     let tizer = &mut *raw;
     let packet_data = std::slice::from_raw_parts(data, len);
     let packet = RtpPacket::decode(packet_data).unwrap();
@@ -53,14 +52,14 @@ unsafe extern "C" fn kd_depacketizer_push(raw: *mut Depacketizer, data: *const u
             }
         }
     }
-}
+}}
 
 #[unsafe(no_mangle)]
-unsafe extern "C" fn kd_nal_units_free(nal_units: *mut KdNalUnits) {
+unsafe extern "C" fn kd_nal_units_free(nal_units: *mut KdNalUnits) { unsafe {
     let units = nal_units.as_mut().unwrap();
     let nal_slices = Box::from_raw(std::ptr::slice_from_raw_parts_mut(units.data, units.count));
     let lengths = Box::from_raw(std::ptr::slice_from_raw_parts_mut(units.lengths, units.count));
     for (ptr, length) in nal_slices.iter().zip(lengths.iter()) {
         let _ = Box::from_raw(std::ptr::slice_from_raw_parts_mut(*ptr as *mut u8, *length));
     }
-}
+}}

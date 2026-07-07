@@ -16,24 +16,27 @@ impl SessionScreen {
 
 impl Screen for SessionScreen {
     fn get_type(&self) -> ScreenType { ScreenType::Session }
-    fn as_any(&self) -> &dyn Any { self }
 
     fn render(&mut self, ui: &mut Ui) {
         let mut state = self.state.lock().unwrap();
 
         ui.heading("Streaming");
-        if let Some(session) = &state.session {
-            ui.label(format!("Game: {}", session.game_title));
-            ui.label(format!("Clients: {}", session.clients.len()));
-            for client in &session.clients {
+
+        if let Some(session) = state.session.as_ref() {
+            ui.label(format!("Game: {}", session.game.metadata.title));
+            ui.add_space(8.0);
+            ui.label(format!("{} client(s):", session.num_clients()));
+            for client in session.clients.lock().unwrap().iter() {
                 ui.label(format!("  {}", client.ip));
             }
-        }
 
-        ui.add_space(16.0);
+            ui.add_space(16.0);
 
-        if ui.button("Stop Streaming").clicked() {
-            state.push_event(AppEvent::PipelineEnd);
+            if ui.button("Stop").clicked() {
+                state.push_event(AppEvent::EndSession);
+            }
+        } else {
+            ui.label("No session is running. Scan the QR code on the connect page with the Kodomo app to start a session.");
         }
     }
 }

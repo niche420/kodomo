@@ -1,6 +1,7 @@
 mod stub;
 #[cfg(target_os = "windows")]
 mod driver;
+pub mod worker;
 
 use kd_shared::profile::{GamepadAxis, GamepadButton, GamepadTrigger, GameProfile, InputEvent, InputEventKind, PhysicalInput};
 

@@ -24,6 +24,7 @@ pub async fn serve(state: SharedState) {
         .route("/games/{title}/profiles/{name}", delete(del_profile))
         .route("/games/{title}/active", get(get_active))
         .route("/games/{title}/active", put(put_active))
+        .route("/stream", post(start_stream))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:7000").await.unwrap();
@@ -100,4 +101,33 @@ async fn put_active(
         Some(game) => { game.active_profile = Some(name); StatusCode::OK }
         None => StatusCode::NOT_FOUND,
     }
+}
+
+#[derive(Deserialize)]
+struct StreamRequest {
+    game: String,
+}
+
+async fn start_stream(
+    State(state): State<SharedState>,
+    Json(body): Json<StreamRequest>,
+) -> impl IntoResponse {
+    let mut state = state.lock().unwrap();
+    if let Some(game) = state.game_clone(&body.game) {
+        state.start_session(game);
+        return StatusCode::OK;
+    }
+    StatusCode::NOT_FOUND
+}
+
+async fn stop_stream(
+    State(state): State<SharedState>,
+) -> impl IntoResponse {
+    let mut state = state.lock().unwrap();
+    if state.is_streaming() {
+        state.stop_session();
+        return StatusCode::OK
+    }
+
+    StatusCode::NOT_FOUND
 }

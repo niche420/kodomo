@@ -44,17 +44,16 @@ impl Screen for ConnectScreen {
         ui.add_space(8.0);
 
         // Connected clients
-        let pending_count = state.pending_clients.len();
-        let active_count: usize = state
-            .session
-            .as_ref()
-            .map_or(0, |session| session.num_clients());
-        let total: usize = pending_count + active_count;
+        let num_clients = if let Some(session) = &state.session {
+            session.clients.lock().unwrap().len()
+        } else {
+            state.pending_clients.len()
+        };
 
-        if total == 0 {
+        if num_clients == 0 {
             ui.label("No clients connected.");
         } else {
-            ui.label(format!("{} client(s) connected:", total));
+            ui.label(format!("{} client(s) connected:", num_clients));
             for client in &state.pending_clients {
                 ui.horizontal(|ui| {
                     ui.colored_label(Color32::YELLOW, "●");
@@ -98,7 +97,7 @@ impl Screen for ConnectScreen {
     }
 
     fn get_type(&self) -> ScreenType {
-        todo!()
+        ScreenType::Connect
     }
 }
 

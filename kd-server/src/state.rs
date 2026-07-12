@@ -67,6 +67,14 @@ impl AppState {
         self.persistent.games.iter_mut().find(|g| g.metadata.title == title)
     }
     
+    pub fn game_clone(&self, title: &str) -> Option<Game> {
+        if let Some(game) = self.game(title) {
+            Some(game.clone())
+        } else {
+            None
+        }
+    }
+
     pub fn add_client(&mut self, client: Client) {
         if let Some(session) = self.session.as_mut() {
             session.add_client(client);
@@ -74,7 +82,7 @@ impl AppState {
             self.pending_clients.push(client);
         }
     }
-    
+
     pub fn start_session(&mut self, game: Game) {
         if self.session.is_some() {
             eprintln!("Cannot start a new session when previous one in progress");
@@ -85,7 +93,7 @@ impl AppState {
             self.session = Some(Session::start(game, clients, encode, network));
         }
     }
-    
+
     pub fn stop_session(&mut self) {
         if self.is_streaming(){
             self.session.take();
@@ -93,6 +101,6 @@ impl AppState {
             eprintln!("Cannot stop a session when there is no session");
         }
     }
-    
+
     pub fn is_streaming(&self) -> bool { self.session.is_some() }
 }

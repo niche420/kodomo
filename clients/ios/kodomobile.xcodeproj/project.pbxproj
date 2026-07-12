@@ -105,7 +105,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 7D72124E2FC1798600FB5126 /* Build configuration list for PBXProject "ios" */;
+			buildConfigurationList = 7D72124E2FC1798600FB5126 /* Build configuration list for PBXProject "kodomobile" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -353,7 +353,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		7D72124E2FC1798600FB5126 /* Build configuration list for PBXProject "ios" */ = {
+		7D72124E2FC1798600FB5126 /* Build configuration list for PBXProject "kodomobile" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				7D72125C2FC1798700FB5126 /* Debug */,

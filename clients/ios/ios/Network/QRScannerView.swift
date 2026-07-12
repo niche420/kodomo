@@ -10,7 +10,6 @@ struct QRScannerView: UIViewControllerRepresentable {
         let handshakePort: UInt16
         let httpPort: UInt16
         let session: String
-        let game: String
     }
 
     func makeUIViewController(context: Context) -> ScannerViewController {
@@ -44,8 +43,7 @@ struct QRScannerView: UIViewControllerRepresentable {
             videoPort: UInt16(port),
             handshakePort: handshakePort,
             httpPort: httpPort,
-            session: session,
-            game: game
+            session: session
         )
     }
 }

@@ -20,3 +20,4 @@ DerivedData/
 *.xcworkspace/xcuserdata/
 *.xcuserstate
 clients/ios/ios.xcodeproj/xcuserdata
+clients/ios/kodomobile.xcodeproj/xcuserdata

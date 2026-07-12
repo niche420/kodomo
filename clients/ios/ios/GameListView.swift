@@ -147,8 +147,7 @@ struct StreamInitView: View {
                 ip: target.server.ip,
                 port: target.server.videoPort,
                 inputPort: inputPort,
-                session: streamResponse.token,
-                game: target.game.title
+                session: streamResponse.token
             )
         }
         client.onFailed = {

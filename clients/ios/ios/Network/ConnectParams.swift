@@ -3,5 +3,4 @@ struct ConnectParams {
     let port: UInt16
     let inputPort: UInt16
     let session: String
-    let game: String
 }

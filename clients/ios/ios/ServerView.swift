@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct HomeView: View {
+struct ServerView: View {
     @EnvironmentObject var serverStore: ServerStore
     @State private var showScanner = false
     @State private var selectedServer: PairedServer? = nil

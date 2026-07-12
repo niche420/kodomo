@@ -5,7 +5,7 @@ class HandshakeClient {
     private let host: String
     private let port: UInt16
     private let token: String
-    var onConnected: ((UInt16) -> Void)?  // passes back the assigned input port
+    var onConnected: ((UInt16) -> Void)?
     var onFailed: (() -> Void)?
     private var connection: NWConnection?
     private var receiveBuffer = Data()
@@ -48,8 +48,6 @@ class HandshakeClient {
         let data = "ready\n".data(using: .utf8)!
         connection?.send(content: data, completion: .idempotent)
     }
-
-    // ── Private ───────────────────────────────────────────────────────────────
 
     private func readLine(completion: @escaping (String?) -> Void) {
         connection?.receive(minimumIncompleteLength: 1, maximumLength: 65535) { [weak self] data, _, _, error in

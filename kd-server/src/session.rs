@@ -51,8 +51,11 @@ impl Session {
     }
 
     pub fn add_client(&mut self, client: Client) {
+        // The InputWorker spawned in `start` already reads from the shared
+        // `clients` list on every packet, so newly added clients are picked
+        // up automatically. Spawning another InputWorker here would try to
+        // bind the same (fixed) input_port a second time and panic.
         self.clients.lock().unwrap().push(client);
-        self.spawn_worker(Box::new(InputWorker::new(self.network_config.clone(), self.clients.clone(), self.stopped.clone())));
     }
 
     pub fn num_clients(&self) -> usize {

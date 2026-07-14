@@ -15,24 +15,23 @@ use crate::ui::screen::{Screen, ScreenType};
 
 pub struct ConnectScreen {
     state: SharedState,
-    token: Uuid
 }
 
 impl ConnectScreen {
     pub fn new(state: SharedState) -> ConnectScreen {
-        let token = Uuid::new_v4();
-        spawn_handshake_listener(state.clone(), token);
-
-        Self {
-            state,
-            token
-        }
+        Self { state }
     }
 }
 
 impl Screen for ConnectScreen {
     fn render(&mut self, ui: &mut Ui) {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+
+        // Lazily ensure a token exists so this screen has something to show
+        // on first render; if the /stream HTTP flow already minted one
+        // (e.g. an iOS client just started a stream), that one is reused
+        // here so the displayed QR always reflects the live token.
+        let token = state.current_token.unwrap_or_else(|| state.new_token());
 
         ui.heading("Connect");
         ui.separator();
@@ -40,7 +39,7 @@ impl Screen for ConnectScreen {
         // Connection info
         let ip = get_lan_ip().unwrap_or_else(|| "127.0.0.1".to_string());
         ui.label(format!("Address: {}", ip));
-        ui.label(format!("Session: {}", &self.token.to_string()));
+        ui.label(format!("Session: {}", &token.to_string()));
         ui.add_space(8.0);
 
         // Connected clients
@@ -77,7 +76,7 @@ impl Screen for ConnectScreen {
         let params = ConnectParams::new(
             ip,
             state.persistent.network.video_port,
-            self.token.to_string(),
+            token.to_string(),
             state.persistent.network.handshake_port,
             state.persistent.network.http_port,
         );
@@ -132,12 +131,16 @@ fn get_lan_ip() -> Option<String> {
     Some(socket.local_addr().ok()?.ip().to_string())
 }
 
-fn spawn_handshake_listener(state: SharedState, token: Uuid) {
-    let (handshake_port, input_port) = if let Ok(state) = state.lock() {
-        (state.persistent.network.handshake_port, state.persistent.network.input_port)
-    } else {
-        eprintln!("Failed to lock on state");
-        return;
+/// Spawns the single, long-lived handshake TCP listener for the server.
+/// Call this exactly once at startup. Whichever flow wants to accept a
+/// new client next (the QR Connect screen, or the HTTP /stream endpoint)
+/// mints a fresh token via `AppState::new_token` and stores it in shared
+/// state; this listener always checks incoming handshakes against
+/// whatever token is current at the moment the connection arrives.
+pub fn spawn_handshake_listener(state: SharedState) {
+    let handshake_port = match state.lock() {
+        Ok(state) => state.persistent.network.handshake_port,
+        Err(_) => { eprintln!("Failed to lock on state"); return; }
     };
     let state_clone = state.clone();
 
@@ -164,18 +167,20 @@ fn spawn_handshake_listener(state: SharedState, token: Uuid) {
 
                         let mut received_token_str = String::new();
                         if reader.read_line(&mut received_token_str).is_err() { return; }
-                        if let Ok(received_token) = Uuid::from_str(received_token_str.trim()) {
-                            if received_token != token {
-                                stream.write_all(b"err\n");
-                                eprintln!("handshake: token mismatch from {}", addr.ip());
-                                return;
+
+                        let input_port = {
+                            let current_token = state_clone.lock().unwrap().current_token;
+                            match Uuid::from_str(received_token_str.trim()) {
+                                Ok(received_token) if Some(received_token) == current_token => {
+                                    state_clone.lock().unwrap().persistent.network.input_port
+                                }
+                                _ => {
+                                    let _ = stream.write_all(b"err\n");
+                                    eprintln!("handshake: token mismatch from {}", addr.ip());
+                                    return;
+                                }
                             }
-                        }
-                        else {
-                            let _ = stream.write_all(b"err\n");
-                            eprintln!("handshake: token mismatch from {}", addr.ip());
-                            return;
-                        }
+                        };
 
                         if stream.write_all(format!("ok:{}\n", input_port).as_bytes()).is_err() {
                             return;

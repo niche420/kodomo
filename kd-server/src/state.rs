@@ -2,6 +2,7 @@ use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::path::PathBuf;
 use crossbeam_channel::Sender;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 use kd_shared::game::GameMetadata;
 use kd_shared::profile::GameProfile;
 use crate::encode::EncodeConfig;
@@ -37,6 +38,12 @@ pub struct AppState {
     pub ctx: egui::Context,
     event_sender: Sender<AppEvent>,
     pub(crate) session: Option<Session>,
+    /// The token a client must present over the handshake TCP connection
+    /// to be accepted. Shared by both the QR-code Connect screen and the
+    /// HTTP /stream endpoint, since both feed the same single handshake
+    /// listener (spawned once at startup) rather than each binding their
+    /// own listener to handshake_port.
+    pub current_token: Option<Uuid>,
 }
 
 impl AppState {
@@ -51,7 +58,16 @@ impl AppState {
             ctx,
             event_sender,
             session: None,
+            current_token: None,
         }
+    }
+
+    /// Generates and stores a fresh handshake token, invalidating any
+    /// previously issued token, and returns it.
+    pub fn new_token(&mut self) -> Uuid {
+        let token = Uuid::new_v4();
+        self.current_token = Some(token);
+        token
     }
 
     pub fn push_event(&mut self, event: AppEvent) {
@@ -66,7 +82,7 @@ impl AppState {
     pub fn game_mut(&mut self, title: &str) -> Option<&mut Game> {
         self.persistent.games.iter_mut().find(|g| g.metadata.title == title)
     }
-    
+
     pub fn game_clone(&self, title: &str) -> Option<Game> {
         if let Some(game) = self.game(title) {
             Some(game.clone())

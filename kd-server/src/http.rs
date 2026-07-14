@@ -16,6 +16,8 @@ use crate::state::AppState;
 pub type SharedState = Arc<Mutex<AppState>>;
 
 pub async fn serve(state: SharedState) {
+    let http_port = state.lock().unwrap().persistent.network.http_port;
+
     let app = Router::new()
         .route("/games", get(get_games))
         .route("/games/{title}/profiles", get(get_profiles))
@@ -25,9 +27,10 @@ pub async fn serve(state: SharedState) {
         .route("/games/{title}/active", get(get_active))
         .route("/games/{title}/active", put(put_active))
         .route("/stream", post(start_stream))
+        .route("/stream", delete(stop_stream))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:7000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind(("0.0.0.0", http_port)).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -108,16 +111,24 @@ struct StreamRequest {
     game: String,
 }
 
+#[derive(serde::Serialize)]
+struct StreamResponse {
+    token: String,
+    handshake_port: u16,
+}
+
 async fn start_stream(
     State(state): State<SharedState>,
     Json(body): Json<StreamRequest>,
 ) -> impl IntoResponse {
     let mut state = state.lock().unwrap();
     if let Some(game) = state.game_clone(&body.game) {
+        let token = state.new_token();
+        let handshake_port = state.persistent.network.handshake_port;
         state.start_session(game);
-        return StatusCode::OK;
+        return Json(StreamResponse { token: token.to_string(), handshake_port }).into_response();
     }
-    StatusCode::NOT_FOUND
+    StatusCode::NOT_FOUND.into_response()
 }
 
 async fn stop_stream(

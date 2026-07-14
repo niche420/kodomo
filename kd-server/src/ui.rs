@@ -39,6 +39,7 @@ impl ServerApp {
             PersistentState::default()
         };
         let state = Arc::new(Mutex::new(AppState::new(persistent, send, cc.egui_ctx.clone())));
+        crate::ui::connect::spawn_handshake_listener(state.clone());
 
         let screens: Vec<Box<dyn Screen>> = vec![
             Box::new(GamesScreen::new(state.clone())),
